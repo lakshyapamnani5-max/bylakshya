@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { CmsProvider, useCms } from './context/CmsContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Navbar } from './components/Navbar';
@@ -80,6 +81,7 @@ export default function App() {
     <ErrorBoundary>
       <CmsProvider>
         <AppRouter />
+        <Analytics />
       </CmsProvider>
     </ErrorBoundary>
   );
