@@ -1,0 +1,67 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "admins": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || auth.token.email === 'lakshaypamnani2@gmail.com')",
+        ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+      }
+    },
+    "siteSettings": {
+      ".read": true,
+      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+    },
+    "homepage": {
+      ".read": true,
+      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+    },
+    "categories": {
+      ".read": true,
+      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+    },
+    "skills": {
+      ".read": true,
+      "$skillId": {
+        ".read": "data.child('status').val() === 'published' || (auth != null && auth.token.email === 'lakshaypamnani2@gmail.com')",
+        ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+      }
+    },
+    "prompts": {
+      "$promptId": {
+        ".read": "data.child('status').val() === 'published' || (auth != null && auth.token.email === 'lakshaypamnani2@gmail.com')",
+        ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+      }
+    },
+    "files": {
+      ".read": "auth != null && auth.token.email === 'lakshaypamnani2@gmail.com'",
+      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+    },
+    "pages": {
+      "$pageId": {
+        ".read": "data.child('status').val() === 'published' || (auth != null && auth.token.email === 'lakshaypamnani2@gmail.com')",
+        ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+      }
+    },
+    "posts": {
+      "$postId": {
+        ".read": "data.child('status').val() === 'published' || (auth != null && auth.token.email === 'lakshaypamnani2@gmail.com')",
+        ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+      }
+    },
+    "downloads": {
+      ".read": "auth != null && auth.token.email === 'lakshaypamnani2@gmail.com'",
+      "$eventId": {
+        ".write": "!data.exists() && newData.hasChildren(['id', 'skillId', 'skillSlug', 'createdAt'])"
+      }
+    },
+    "analytics": {
+      ".read": "auth != null && auth.token.email === 'lakshaypamnani2@gmail.com'",
+      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+    },
+    "activityLogs": {
+      ".read": "auth != null && auth.token.email === 'lakshaypamnani2@gmail.com'",
+      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+    }
+  }
+}

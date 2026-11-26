@@ -1,0 +1,8 @@
+{
+  "name": "Lakshya — Personal AI Skills & Studio",
+  "description": "Personal website, interactive AI skills library, downloadable workflows, and creator CMS by Lakshya.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
