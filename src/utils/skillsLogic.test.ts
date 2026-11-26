@@ -10,7 +10,9 @@ import {
   isFileReferencedByContent,
   isSafeUrl,
   paginateItems,
+  prepareInlinePromptsForSkill,
   reorderPrompts,
+  validateInlineSkillPrompts,
   validatePromptPayload,
   validateSkillPayload,
 } from './skillsLogic';
@@ -330,4 +332,57 @@ test('validatePromptPayload catches missing content, bad slug, and unsafe previe
     baseSkills,
   );
   assert.equal(errors.length, 4);
+});
+
+test('validateInlineSkillPrompts catches empty title or prompt text with numbered labels', () => {
+  const errors = validateInlineSkillPrompts([
+    {
+      id: 'p1',
+      title: '   ',
+      description: 'Short note',
+      content: '',
+      difficulty: 'Beginner',
+      featured: false,
+      status: 'published',
+    },
+  ]);
+  assert.equal(errors.length, 2);
+  assert.match(errors[0], /^Prompt #1:/);
+  assert.match(errors[1], /^Prompt #1:/);
+});
+
+test('prepareInlinePromptsForSkill assigns unique slugs and sequential displayOrder', () => {
+  const prepared = prepareInlinePromptsForSkill(
+    [
+      {
+        id: 'p1',
+        title: 'Quick Explainer',
+        description: '',
+        content: 'Summarize repo changes.',
+        difficulty: 'Beginner',
+        featured: true,
+        status: 'published',
+        createdAt: 1000,
+      },
+      {
+        id: 'p2',
+        title: 'Quick Explainer',
+        description: 'Variant 2',
+        content: 'Generate video script.',
+        difficulty: 'Intermediate',
+        featured: false,
+        status: 'published',
+      },
+    ],
+    'skill-new-1',
+    5000,
+  );
+  assert.equal(prepared.length, 2);
+  assert.equal(prepared[0].skillId, 'skill-new-1');
+  assert.equal(prepared[0].displayOrder, 1);
+  assert.equal(prepared[0].slug, 'quick-explainer');
+  assert.equal(prepared[0].createdAt, 1000);
+  assert.equal(prepared[1].displayOrder, 2);
+  assert.equal(prepared[1].slug, 'quick-explainer-2');
+  assert.equal(prepared[1].createdAt, 5000);
 });

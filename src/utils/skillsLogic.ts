@@ -247,6 +247,81 @@ export function reorderPrompts(
   }));
 }
 
+export interface InlinePromptDraft {
+  id: string;
+  title: string;
+  slug?: string;
+  description: string;
+  content: string;
+  difficulty: SamplePrompt['difficulty'];
+  featured: boolean;
+  previewImage?: string;
+  status: SamplePrompt['status'];
+  createdAt?: number;
+}
+
+export function validateInlineSkillPrompts(drafts: InlinePromptDraft[]): string[] {
+  const errors: string[] = [];
+  drafts.forEach((draft, idx) => {
+    const label = `Prompt #${idx + 1}`;
+    const trimmedTitle = (draft.title || '').trim();
+    const trimmedContent = (draft.content || '').trim();
+    const trimmedDesc = (draft.description || '').trim();
+    if (!trimmedTitle) {
+      errors.push(`${label}: Prompt title is required.`);
+    } else if (trimmedTitle.length > 140) {
+      errors.push(`${label}: Prompt title must be 140 characters or fewer.`);
+    }
+    if (!trimmedContent) {
+      errors.push(`${label}: Prompt text is required.`);
+    } else if (trimmedContent.length > 30000) {
+      errors.push(`${label}: Prompt text must be 30,000 characters or fewer.`);
+    }
+    if (trimmedDesc.length > 500) {
+      errors.push(`${label}: Short description must be 500 characters or fewer.`);
+    }
+    if (draft.previewImage && !isSafeUrl(draft.previewImage)) {
+      errors.push(`${label}: Preview image URL must be a relative path or http(s) URL.`);
+    }
+  });
+  return errors;
+}
+
+export function prepareInlinePromptsForSkill(
+  drafts: InlinePromptDraft[],
+  skillId: string,
+  nowMs: number = Date.now(),
+): SamplePrompt[] {
+  const seenSlugs = new Set<string>();
+  return drafts.map((draft, idx) => {
+    const cleanTitle = (draft.title || '').trim().slice(0, 140);
+    const baseSlug = generateSlug(draft.slug || cleanTitle || `prompt-${idx + 1}`).slice(0, 130);
+    let candidate = baseSlug;
+    let suffix = 2;
+    while (seenSlugs.has(candidate)) {
+      candidate = `${baseSlug.slice(0, 124)}-${suffix}`;
+      suffix += 1;
+    }
+    seenSlugs.add(candidate);
+
+    return {
+      id: draft.id,
+      skillId,
+      title: cleanTitle,
+      slug: candidate,
+      description: (draft.description || '').trim().slice(0, 500),
+      content: (draft.content || '').trim().slice(0, 30000),
+      difficulty: draft.difficulty || 'Intermediate',
+      displayOrder: idx + 1,
+      featured: Boolean(draft.featured),
+      previewImage: (draft.previewImage || '').trim(),
+      status: draft.status || 'published',
+      createdAt: draft.createdAt || nowMs,
+      updatedAt: nowMs,
+    };
+  });
+}
+
 export function validateSkillPayload(input: Partial<Skill>, categories: Category[]): string[] {
   const errors: string[] = [];
   if (!input.title || !input.title.trim()) {

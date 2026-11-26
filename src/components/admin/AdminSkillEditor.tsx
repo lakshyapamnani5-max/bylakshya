@@ -1,14 +1,34 @@
 import { useState } from 'react';
-import { ArrowLeft, Eye, Plus, Upload, X } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowUp,
+  ChevronDown,
+  Eye,
+  Plus,
+  Upload,
+  X,
+} from 'lucide-react';
 import { useCms } from '../../context/CmsContext';
-import type { PricingStatus, Skill, SkillSampleVideo, SkillStatus } from '../../types/cms';
+import type {
+  PageStatus,
+  PricingStatus,
+  PromptDifficulty,
+  Skill,
+  SkillSampleVideo,
+  SkillStatus,
+} from '../../types/cms';
 import {
   formatFileSize,
   generateSafeId,
   generateSlug,
+  prepareInlinePromptsForSkill,
+  validateInlineSkillPrompts,
   validateSkillPayload,
+  type InlinePromptDraft,
 } from '../../utils/skillsLogic';
 import { renderSafeMarkdown } from '../../utils/markdown';
+import { SamplePromptsAccordion } from '../SamplePromptsAccordion';
 
 interface AdminSkillEditorProps {
   initialSkill: Skill | null;
@@ -31,7 +51,7 @@ function splitComma(raw: string): string[] {
 }
 
 export function AdminSkillEditor({ initialSkill, onClose, onSaved }: AdminSkillEditorProps) {
-  const { categories, files, saveSkill, uploadFile } = useCms();
+  const { categories, files, prompts, saveSkill, savePrompt, deletePrompt, uploadFile } = useCms();
   const now = Date.now();
 
   const [id] = useState(initialSkill?.id || generateSafeId('skill'));
@@ -68,6 +88,31 @@ export function AdminSkillEditor({ initialSkill, onClose, onSaved }: AdminSkillE
   const [sampleVideos, setSampleVideos] = useState<SkillSampleVideo[]>(
     initialSkill?.sampleVideos || [],
   );
+
+  const [existingPromptIds] = useState<string[]>(() =>
+    initialSkill
+      ? prompts.filter((p) => p.skillId === initialSkill.id).map((p) => p.id)
+      : [],
+  );
+  const [skillPrompts, setSkillPrompts] = useState<InlinePromptDraft[]>(() => {
+    if (!initialSkill) return [];
+    return prompts
+      .filter((p) => p.skillId === initialSkill.id)
+      .sort((a, b) => a.displayOrder - b.displayOrder || a.createdAt - b.createdAt)
+      .map((p) => ({
+        id: p.id,
+        title: p.title,
+        slug: p.slug,
+        description: p.description,
+        content: p.content,
+        difficulty: p.difficulty,
+        featured: p.featured,
+        previewImage: p.previewImage || '',
+        status: p.status,
+        createdAt: p.createdAt,
+      }));
+  });
+  const [expandedPromptId, setExpandedPromptId] = useState<string | null>(null);
 
   const [githubUrl, setGithubUrl] = useState(initialSkill?.githubUrl || '');
   const [docsUrl, setDocsUrl] = useState(initialSkill?.docsUrl || '');
@@ -157,8 +202,17 @@ export function AdminSkillEditor({ initialSkill, onClose, onSaved }: AdminSkillE
 
   const handleSubmit = async (targetStatus?: SkillStatus) => {
     const payload = buildPayload(targetStatus);
-    const validationErrors = validateSkillPayload(payload, categories);
+    const validationErrors = [
+      ...validateSkillPayload(payload, categories),
+      ...validateInlineSkillPrompts(skillPrompts),
+    ];
     if (validationErrors.length > 0) {
+      const firstBadIdx = skillPrompts.findIndex(
+        (p) => !(p.title || '').trim() || !(p.content || '').trim(),
+      );
+      if (firstBadIdx !== -1) {
+        setExpandedPromptId(skillPrompts[firstBadIdx].id);
+      }
       setErrors(validationErrors);
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
@@ -167,12 +221,56 @@ export function AdminSkillEditor({ initialSkill, onClose, onSaved }: AdminSkillE
     setSaving(true);
     try {
       await saveSkill(payload);
+
+      const currentIds = new Set(skillPrompts.map((p) => p.id));
+      for (const oldId of existingPromptIds) {
+        if (!currentIds.has(oldId)) {
+          const oldPrompt = prompts.find((p) => p.id === oldId);
+          await deletePrompt(oldId, oldPrompt?.title || oldId);
+        }
+      }
+
+      const preparedPrompts = prepareInlinePromptsForSkill(skillPrompts, id);
+      for (const promptPayload of preparedPrompts) {
+        await savePrompt(promptPayload);
+      }
+
       onSaved();
     } catch (err) {
       setErrors([err instanceof Error ? err.message : 'Failed to save skill.']);
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleAddInlinePrompt = () => {
+    const newId = generateSafeId('prompt');
+    setSkillPrompts((prev) => [
+      ...prev,
+      {
+        id: newId,
+        title: '',
+        description: '',
+        content: '',
+        difficulty: 'Intermediate',
+        featured: false,
+        previewImage: '',
+        status: 'published',
+      },
+    ]);
+    setExpandedPromptId(newId);
+  };
+
+  const handleMoveInlinePrompt = (idx: number, dir: 'up' | 'down') => {
+    const targetIdx = dir === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= skillPrompts.length) return;
+    setSkillPrompts((prev) => {
+      const copy = [...prev];
+      const temp = copy[idx];
+      copy[idx] = copy[targetIdx];
+      copy[targetIdx] = temp;
+      return copy;
+    });
   };
 
   const handleZipUpload = async (file: File) => {
@@ -882,6 +980,244 @@ export function AdminSkillEditor({ initialSkill, onClose, onSaved }: AdminSkillE
         )}
       </div>
 
+      {/* Collapsible Sample Prompts for this Skill */}
+      <div className="bg-white rounded-2xl border border-[#18264F]/10 p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-display text-lg font-semibold text-[#18264F]">
+              Sample Prompts ({skillPrompts.length})
+            </h3>
+            <p className="text-xs text-[#18264F]/60">
+              Add prompts shown on the skill page as collapsible cards with a title and Copy Prompt button.
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="add-skill-prompt-btn"
+            onClick={handleAddInlinePrompt}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#304A96] text-white text-xs font-semibold hover:bg-[#18264F] transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Prompt</span>
+          </button>
+        </div>
+
+        {skillPrompts.length === 0 ? (
+          <div className="bg-[#F5F5FA] rounded-xl p-5 text-center text-xs text-[#18264F]/60">
+            No prompts added to this skill yet. Click &ldquo;Add Prompt&rdquo; to attach collapsible prompt cards.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {skillPrompts.map((prompt, idx) => {
+              const isOpen = expandedPromptId === prompt.id;
+              const numLabel = String(idx + 1).padStart(2, '0');
+              return (
+                <div
+                  key={prompt.id}
+                  data-testid={`editor-prompt-card-${idx}`}
+                  className="bg-[#F5F5FA] rounded-xl border border-[#18264F]/10 overflow-hidden"
+                >
+                  <div className="px-4 py-3 flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      aria-expanded={isOpen}
+                      onClick={() => setExpandedPromptId(isOpen ? null : prompt.id)}
+                      className="flex-1 flex items-center gap-2.5 text-left min-w-0"
+                    >
+                      <span className="font-mono text-xs font-semibold text-[#304A96] tabular-nums shrink-0">
+                        {numLabel}.
+                      </span>
+                      <span className="font-semibold text-xs sm:text-sm text-[#18264F] truncate">
+                        {prompt.title.trim() || 'Untitled prompt'}
+                      </span>
+                      <span className="hidden sm:inline text-[11px] text-[#18264F]/55 shrink-0">
+                        · {prompt.difficulty} · {prompt.status}
+                      </span>
+                    </button>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        disabled={idx === 0}
+                        aria-label={`Move prompt ${idx + 1} up`}
+                        onClick={() => handleMoveInlinePrompt(idx, 'up')}
+                        className="p-1.5 rounded-lg hover:bg-white text-[#18264F]/70 disabled:opacity-30"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={idx === skillPrompts.length - 1}
+                        aria-label={`Move prompt ${idx + 1} down`}
+                        onClick={() => handleMoveInlinePrompt(idx, 'down')}
+                        className="p-1.5 rounded-lg hover:bg-white text-[#18264F]/70 disabled:opacity-30"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={isOpen ? 'Collapse prompt fields' : 'Expand prompt fields'}
+                        onClick={() => setExpandedPromptId(isOpen ? null : prompt.id)}
+                        className="p-1.5 rounded-lg hover:bg-white text-[#304A96]"
+                      >
+                        <ChevronDown
+                          className={`w-4 h-4 transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`}
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Remove prompt ${prompt.title || idx + 1}`}
+                        onClick={() => {
+                          setSkillPrompts((prev) => prev.filter((item) => item.id !== prompt.id));
+                          if (expandedPromptId === prompt.id) setExpandedPromptId(null);
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-red-50 text-red-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {isOpen && (
+                    <div className="px-4 pb-4 pt-3 border-t border-[#18264F]/8 bg-white space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                        <div className="md:col-span-6 space-y-1">
+                          <label
+                            htmlFor={`inline-prompt-title-${prompt.id}`}
+                            className="text-[11px] font-semibold text-[#18264F]"
+                          >
+                            Prompt Title *
+                          </label>
+                          <input
+                            id={`inline-prompt-title-${prompt.id}`}
+                            type="text"
+                            placeholder="e.g., Editorial Motion Graphics"
+                            value={prompt.title}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setSkillPrompts((prev) =>
+                                prev.map((item) =>
+                                  item.id === prompt.id ? { ...item, title: val } : item,
+                                ),
+                              );
+                            }}
+                            className="w-full px-3 py-2 rounded-lg bg-[#F5F5FA] border border-[#18264F]/10 text-xs"
+                          />
+                        </div>
+
+                        <div className="md:col-span-3 space-y-1">
+                          <label
+                            htmlFor={`inline-prompt-diff-${prompt.id}`}
+                            className="text-[11px] font-semibold text-[#18264F]"
+                          >
+                            Difficulty
+                          </label>
+                          <select
+                            id={`inline-prompt-diff-${prompt.id}`}
+                            value={prompt.difficulty}
+                            onChange={(e) => {
+                              const val = e.target.value as PromptDifficulty;
+                              setSkillPrompts((prev) =>
+                                prev.map((item) =>
+                                  item.id === prompt.id ? { ...item, difficulty: val } : item,
+                                ),
+                              );
+                            }}
+                            className="w-full px-3 py-2 rounded-lg bg-[#F5F5FA] border border-[#18264F]/10 text-xs"
+                          >
+                            <option value="Beginner">Beginner</option>
+                            <option value="Intermediate">Intermediate</option>
+                            <option value="Advanced">Advanced</option>
+                          </select>
+                        </div>
+
+                        <div className="md:col-span-3 space-y-1">
+                          <label
+                            htmlFor={`inline-prompt-status-${prompt.id}`}
+                            className="text-[11px] font-semibold text-[#18264F]"
+                          >
+                            Visibility
+                          </label>
+                          <select
+                            id={`inline-prompt-status-${prompt.id}`}
+                            value={prompt.status}
+                            onChange={(e) => {
+                              const val = e.target.value as PageStatus;
+                              setSkillPrompts((prev) =>
+                                prev.map((item) =>
+                                  item.id === prompt.id ? { ...item, status: val } : item,
+                                ),
+                              );
+                            }}
+                            className="w-full px-3 py-2 rounded-lg bg-[#F5F5FA] border border-[#18264F]/10 text-xs"
+                          >
+                            <option value="published">Published</option>
+                            <option value="draft">Draft</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label
+                          htmlFor={`inline-prompt-desc-${prompt.id}`}
+                          className="text-[11px] font-semibold text-[#18264F]"
+                        >
+                          Short Description (optional)
+                        </label>
+                        <input
+                          id={`inline-prompt-desc-${prompt.id}`}
+                          type="text"
+                          placeholder="One-line explanation shown when expanded"
+                          value={prompt.description}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setSkillPrompts((prev) =>
+                              prev.map((item) =>
+                                item.id === prompt.id ? { ...item, description: val } : item,
+                              ),
+                            );
+                          }}
+                          className="w-full px-3 py-2 rounded-lg bg-[#F5F5FA] border border-[#18264F]/10 text-xs"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <label
+                            htmlFor={`inline-prompt-content-${prompt.id}`}
+                            className="text-[11px] font-semibold text-[#18264F]"
+                          >
+                            Prompt Text * (visitors can copy with one click)
+                          </label>
+                          <span className="text-[11px] font-mono text-[#18264F]/50 tabular-nums">
+                            {prompt.content.length} chars
+                          </span>
+                        </div>
+                        <textarea
+                          id={`inline-prompt-content-${prompt.id}`}
+                          rows={5}
+                          placeholder="Paste or write the full prompt for users to copy..."
+                          value={prompt.content}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setSkillPrompts((prev) =>
+                              prev.map((item) =>
+                                item.id === prompt.id ? { ...item, content: val } : item,
+                              ),
+                            );
+                          }}
+                          className="w-full p-3 rounded-lg bg-[#F5F5FA] border border-[#18264F]/10 text-xs font-mono leading-relaxed"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Rich Markdown Editor with Live Preview */}
       <div className="bg-white rounded-2xl border border-[#18264F]/10 p-6 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1010,6 +1346,14 @@ export function AdminSkillEditor({ initialSkill, onClose, onSaved }: AdminSkillE
             </h2>
             <p className="text-sm text-[#18264F]/80">{shortDescription}</p>
             <div className="bg-white rounded-2xl p-6 prose-lakshya" dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(installation) }} />
+            {skillPrompts.some((p) => p.title.trim() && p.content.trim() && p.status === 'published') && (
+              <SamplePromptsAccordion
+                prompts={prepareInlinePromptsForSkill(
+                  skillPrompts.filter((p) => p.title.trim() && p.content.trim() && p.status === 'published'),
+                  id,
+                )}
+              />
+            )}
           </div>
         </div>
       )}
