@@ -55,6 +55,18 @@
         ".write": "!data.exists() && newData.hasChildren(['id', 'skillId', 'skillSlug', 'createdAt'])"
       }
     },
+    "visitorSessions": {
+      ".read": "auth != null && auth.token.email === 'lakshaypamnani2@gmail.com'",
+      "$sessionId": {
+        ".write": "newData.hasChildren(['id', 'deviceType', 'os', 'browser', 'platformSource', 'currentPath', 'lastSeenAt'])"
+      }
+    },
+    "downloadLeads": {
+      ".read": "auth != null && auth.token.email === 'lakshaypamnani2@gmail.com'",
+      "$leadId": {
+        ".write": "!data.exists() && newData.hasChildren(['id', 'email', 'skillId', 'skillSlug', 'createdAt'])"
+      }
+    },
     "analytics": {
       ".read": "auth != null && auth.token.email === 'lakshaypamnani2@gmail.com'",
       ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"

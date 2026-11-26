@@ -16,7 +16,7 @@ const BASE_TIME = 1795600000000;
 export const INITIAL_SITE_SETTINGS: SiteSettings = {
   siteName: 'Lakshya',
   logoText: 'Lakshya',
-  faviconUrl: '/assets/aistudio/file_0000000015c88208aaf650cbc9ed52a8_7c80ab43.png',
+  faviconUrl: '/favicon.ico',
   contactEmail: 'lakshaypamnani2@gmail.com',
   primaryColor: '#304A96',
   accentColor: '#F2A77F',

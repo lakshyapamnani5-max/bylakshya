@@ -39,6 +39,7 @@ import type {
   Category,
   DailyAnalytics,
   DownloadEvent,
+  DownloadLead,
   FileRecord,
   HomepageConfig,
   PageRecord,
@@ -46,8 +47,14 @@ import type {
   SamplePrompt,
   SiteSettings,
   Skill,
+  VisitorSession,
 } from '../types/cms';
 import { generateSafeId } from '../utils/skillsLogic';
+import {
+  detectClientDevice,
+  detectTrafficPlatform,
+  isValidVisitorEmail,
+} from '../utils/analyticsLogic';
 
 interface CmsContextValue {
   settings: SiteSettings;
@@ -59,6 +66,8 @@ interface CmsContextValue {
   pages: PageRecord[];
   posts: PostRecord[];
   downloads: DownloadEvent[];
+  visitorSessions: VisitorSession[];
+  downloadLeads: DownloadLead[];
   analytics: DailyAnalytics[];
   activityLogs: ActivityLog[];
   user: User | null;
@@ -88,6 +97,8 @@ interface CmsContextValue {
   replaceFile: (fileRecord: FileRecord, newFile: File) => Promise<FileRecord>;
   deleteFileRecord: (fileRecord: FileRecord) => Promise<void>;
   trackSkillDownload: (skill: Skill) => Promise<void>;
+  submitDownloadWithEmail: (skill: Skill, email: string) => Promise<void>;
+  trackPageVisit: (path: string) => void;
 }
 
 const CmsContext = createContext<CmsContextValue | null>(null);
@@ -102,6 +113,8 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
   const [pages, setPages] = useState<PageRecord[]>(INITIAL_PAGES);
   const [posts, setPosts] = useState<PostRecord[]>(INITIAL_POSTS);
   const [downloads, setDownloads] = useState<DownloadEvent[]>([]);
+  const [visitorSessions, setVisitorSessions] = useState<VisitorSession[]>([]);
+  const [downloadLeads, setDownloadLeads] = useState<DownloadLead[]>([]);
   const [analytics, setAnalytics] = useState<DailyAnalytics[]>(INITIAL_DAILY_ANALYTICS);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(INITIAL_ACTIVITY_LOGS);
 
@@ -110,6 +123,8 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
   const [dbConnected, setDbConnected] = useState(true);
+  const currentTrackedPathRef = React.useRef<string>('');
+  const sessionInitializedRef = React.useRef<boolean>(false);
 
   const logActivity = useCallback(
     async (action: string, entityType: string, entityTitle: string, actorEmail?: string) => {
@@ -292,6 +307,30 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
             }
           },
           (err) => console.warn('analytics listener:', err.message),
+        ),
+      );
+      unsubs.push(
+        onSnapshot(
+          collection(db, 'visitorSessions'),
+          (snap) => {
+            const list = snap.docs
+              .map((d) => d.data() as VisitorSession)
+              .sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+            setVisitorSessions(list);
+          },
+          (err) => console.warn('visitorSessions listener:', err.message),
+        ),
+      );
+      unsubs.push(
+        onSnapshot(
+          collection(db, 'downloadLeads'),
+          (snap) => {
+            const list = snap.docs
+              .map((d) => d.data() as DownloadLead)
+              .sort((a, b) => b.createdAt - a.createdAt);
+            setDownloadLeads(list);
+          },
+          (err) => console.warn('downloadLeads listener:', err.message),
         ),
       );
       unsubs.push(
@@ -782,29 +821,231 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
     [logActivity],
   );
 
-  const trackSkillDownload = useCallback(async (skill: Skill) => {
-    const now = Date.now();
-    const dateKey = new Date(now).toISOString().slice(0, 10);
-    const event: DownloadEvent = {
-      id: generateSafeId('dl'),
-      skillId: skill.id,
-      skillSlug: skill.slug,
-      fileId: skill.zipFileId || '',
-      dateKey,
-      createdAt: now,
-    };
-    setSkills((prev) =>
-      prev.map((s) =>
-        s.id === skill.id ? { ...s, downloadCount: (s.downloadCount || 0) + 1 } : s,
-      ),
+  const getVisitorMetadata = useCallback(() => {
+    const device = detectClientDevice(
+      typeof navigator !== 'undefined' ? navigator.userAgent : '',
+      typeof navigator !== 'undefined' ? navigator.maxTouchPoints : 0,
+      typeof navigator !== 'undefined' ? navigator.platform : '',
     );
+    const detectedSource = detectTrafficPlatform({
+      search: typeof window !== 'undefined' ? window.location.search : '',
+      referrer: typeof document !== 'undefined' ? document.referrer : '',
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+      currentHost: typeof window !== 'undefined' ? window.location.host : '',
+    });
+
+    let platformSource = detectedSource.platformSource;
+    let referrerHost = detectedSource.referrerHost;
     try {
-      await setDoc(doc(db, 'downloads', event.id), event);
-      await updateDoc(doc(db, 'skills', skill.id), { downloadCount: increment(1) });
-    } catch (err) {
-      console.warn('Download tracking sync skipped:', err);
+      const savedPlatform = sessionStorage.getItem('lakshya_platform_source');
+      const savedRefHost = sessionStorage.getItem('lakshya_referrer_host') || '';
+      if (platformSource !== 'Direct') {
+        sessionStorage.setItem('lakshya_platform_source', platformSource);
+        sessionStorage.setItem('lakshya_referrer_host', referrerHost);
+      } else if (savedPlatform) {
+        platformSource = savedPlatform;
+        referrerHost = savedRefHost;
+      } else {
+        sessionStorage.setItem('lakshya_platform_source', 'Direct');
+      }
+    } catch {
+      // Ignore storage failures in restricted contexts
     }
+
+    return {
+      ...device,
+      platformSource: platformSource.slice(0, 60),
+      referrerHost: referrerHost.slice(0, 180),
+    };
   }, []);
+
+  const syncVisitorHeartbeat = useCallback(
+    async (path: string, isPageTransition: boolean, activeState = true) => {
+      if (!path || path.startsWith('/admin')) return;
+      const cleanPath = path.slice(0, 200) || '/';
+      const now = Date.now();
+      const meta = getVisitorMetadata();
+
+      let sessionId = '';
+      let startedAt = now;
+      let pageViews = 1;
+      try {
+        sessionId = sessionStorage.getItem('lakshya_session_id') || '';
+        const storedStarted = Number(sessionStorage.getItem('lakshya_session_started') || '0');
+        const storedViews = Number(sessionStorage.getItem('lakshya_session_views') || '0');
+        if (!sessionId || !/^[a-zA-Z0-9_-]{1,128}$/.test(sessionId)) {
+          sessionId = generateSafeId('sess');
+          sessionStorage.setItem('lakshya_session_id', sessionId);
+          sessionStorage.setItem('lakshya_session_started', String(now));
+          sessionStorage.setItem('lakshya_session_views', '1');
+          sessionInitializedRef.current = false;
+        } else {
+          startedAt = storedStarted > 0 ? storedStarted : now;
+          pageViews = isPageTransition ? Math.max(1, storedViews + 1) : Math.max(1, storedViews);
+          sessionStorage.setItem('lakshya_session_started', String(startedAt));
+          sessionStorage.setItem('lakshya_session_views', String(pageViews));
+        }
+      } catch {
+        sessionId = generateSafeId('sess');
+      }
+
+      const ref = doc(db, 'visitorSessions', sessionId);
+      const fullPayload: VisitorSession = {
+        id: sessionId,
+        deviceType: meta.deviceType,
+        os: meta.os,
+        deviceLabel: meta.deviceLabel,
+        browser: meta.browser,
+        platformSource: meta.platformSource,
+        referrerHost: meta.referrerHost,
+        currentPath: cleanPath,
+        pageViews,
+        isActive: activeState,
+        startedAt,
+        lastSeenAt: Math.max(startedAt, now),
+      };
+
+      try {
+        if (!sessionInitializedRef.current) {
+          try {
+            await updateDoc(ref, {
+              currentPath: cleanPath,
+              pageViews,
+              lastSeenAt: Math.max(startedAt, now),
+              isActive: activeState,
+            });
+            sessionInitializedRef.current = true;
+            return;
+          } catch {
+            await setDoc(ref, fullPayload);
+            sessionInitializedRef.current = true;
+            return;
+          }
+        }
+        await updateDoc(ref, {
+          currentPath: cleanPath,
+          pageViews,
+          lastSeenAt: Math.max(startedAt, now),
+          isActive: activeState,
+        });
+      } catch {
+        // Ignore transient network failures for background visitor analytics
+      }
+    },
+    [getVisitorMetadata],
+  );
+
+  const trackPageVisit = useCallback(
+    (path: string) => {
+      if (path.startsWith('/admin')) {
+        currentTrackedPathRef.current = '';
+        return;
+      }
+      const isTransition = currentTrackedPathRef.current !== path;
+      currentTrackedPathRef.current = path;
+      void syncVisitorHeartbeat(path, isTransition, true);
+    },
+    [syncVisitorHeartbeat],
+  );
+
+  useEffect(() => {
+    const heartbeat = window.setInterval(() => {
+      const activePath = currentTrackedPathRef.current;
+      if (activePath && document.visibilityState === 'visible') {
+        void syncVisitorHeartbeat(activePath, false, true);
+      }
+    }, 20_000);
+
+    const handleVisibility = () => {
+      const activePath = currentTrackedPathRef.current;
+      if (!activePath) return;
+      if (document.visibilityState === 'visible') {
+        void syncVisitorHeartbeat(activePath, false, true);
+      }
+    };
+
+    const handlePageHide = () => {
+      const activePath = currentTrackedPathRef.current;
+      if (activePath) {
+        void syncVisitorHeartbeat(activePath, false, false);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('pagehide', handlePageHide);
+    return () => {
+      window.clearInterval(heartbeat);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
+  }, [syncVisitorHeartbeat]);
+
+  const trackSkillDownload = useCallback(
+    async (skill: Skill) => {
+      const now = Date.now();
+      const dateKey = new Date(now).toISOString().slice(0, 10);
+      const meta = getVisitorMetadata();
+      const event: DownloadEvent = {
+        id: generateSafeId('dl'),
+        skillId: skill.id,
+        skillSlug: skill.slug,
+        fileId: skill.zipFileId || '',
+        deviceType: meta.deviceType,
+        os: meta.os,
+        browser: meta.browser,
+        platformSource: meta.platformSource,
+        dateKey,
+        createdAt: now,
+      };
+      setSkills((prev) =>
+        prev.map((s) =>
+          s.id === skill.id ? { ...s, downloadCount: (s.downloadCount || 0) + 1 } : s,
+        ),
+      );
+      try {
+        await setDoc(doc(db, 'downloads', event.id), event);
+        await updateDoc(doc(db, 'skills', skill.id), { downloadCount: increment(1) });
+      } catch (err) {
+        console.warn('Download tracking sync skipped:', err);
+      }
+    },
+    [getVisitorMetadata],
+  );
+
+  const submitDownloadWithEmail = useCallback(
+    async (skill: Skill, rawEmail: string) => {
+      const cleanEmail = rawEmail.trim().slice(0, 200);
+      if (!isValidVisitorEmail(cleanEmail)) {
+        throw new Error('Please enter a valid email address.');
+      }
+      const now = Date.now();
+      const dateKey = new Date(now).toISOString().slice(0, 10);
+      const meta = getVisitorMetadata();
+      const lead: DownloadLead = {
+        id: generateSafeId('lead'),
+        email: cleanEmail,
+        skillId: skill.id,
+        skillTitle: skill.title.slice(0, 140),
+        skillSlug: skill.slug.slice(0, 120),
+        deviceType: meta.deviceType,
+        os: meta.os,
+        browser: meta.browser,
+        platformSource: meta.platformSource,
+        dateKey,
+        createdAt: now,
+      };
+      try {
+        await setDoc(doc(db, 'downloadLeads', lead.id), lead);
+        if (isAdmin) {
+          setDownloadLeads((prev) => [lead, ...prev]);
+        }
+      } catch (err) {
+        console.warn('Download lead sync notice:', err);
+      }
+      await trackSkillDownload(skill);
+    },
+    [getVisitorMetadata, isAdmin, trackSkillDownload],
+  );
 
   return (
     <CmsContext.Provider
@@ -818,6 +1059,8 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         pages,
         posts,
         downloads,
+        visitorSessions,
+        downloadLeads,
         analytics,
         activityLogs,
         user,
@@ -847,6 +1090,8 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         replaceFile,
         deleteFileRecord,
         trackSkillDownload,
+        submitDownloadWithEmail,
+        trackPageVisit,
       }}
     >
       {children}

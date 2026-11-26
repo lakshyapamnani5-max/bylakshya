@@ -210,10 +210,77 @@
         "skillId": { "type": "string", "minLength": 1, "maxLength": 128 },
         "skillSlug": { "type": "string", "minLength": 1, "maxLength": 120 },
         "fileId": { "type": "string", "maxLength": 128 },
+        "deviceType": { "type": "string", "enum": ["Mobile", "Tablet", "Desktop"] },
+        "os": { "type": "string", "enum": ["Android", "iOS", "macOS", "Windows", "Linux", "ChromeOS", "Other"] },
+        "browser": { "type": "string", "maxLength": 60 },
+        "platformSource": { "type": "string", "maxLength": 60 },
         "dateKey": { "type": "string", "maxLength": 20 },
         "createdAt": { "type": "number" }
       },
       "required": ["id", "skillId", "skillSlug", "dateKey", "createdAt"]
+    },
+    "VisitorSession": {
+      "title": "VisitorSession",
+      "description": "Live visitor session tracking device OS, phone type, browser, acquisition platform, and current page.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "deviceType": { "type": "string", "enum": ["Mobile", "Tablet", "Desktop"] },
+        "os": { "type": "string", "enum": ["Android", "iOS", "macOS", "Windows", "Linux", "ChromeOS", "Other"] },
+        "deviceLabel": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "browser": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "platformSource": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "referrerHost": { "type": "string", "maxLength": 180 },
+        "currentPath": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "pageViews": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "startedAt": { "type": "number" },
+        "lastSeenAt": { "type": "number" }
+      },
+      "required": [
+        "id",
+        "deviceType",
+        "os",
+        "deviceLabel",
+        "browser",
+        "platformSource",
+        "currentPath",
+        "pageViews",
+        "isActive",
+        "startedAt",
+        "lastSeenAt"
+      ]
+    },
+    "DownloadLead": {
+      "title": "DownloadLead",
+      "description": "Email address collected prior to downloading a skill alongside device and referral platform context.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "minLength": 3, "maxLength": 200, "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" },
+        "skillId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "skillTitle": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "skillSlug": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[a-z0-9\\-]+$" },
+        "deviceType": { "type": "string", "enum": ["Mobile", "Tablet", "Desktop"] },
+        "os": { "type": "string", "enum": ["Android", "iOS", "macOS", "Windows", "Linux", "ChromeOS", "Other"] },
+        "browser": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "platformSource": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "dateKey": { "type": "string", "minLength": 8, "maxLength": 20 },
+        "createdAt": { "type": "number" }
+      },
+      "required": [
+        "id",
+        "email",
+        "skillId",
+        "skillTitle",
+        "skillSlug",
+        "deviceType",
+        "os",
+        "browser",
+        "platformSource",
+        "dateKey",
+        "createdAt"
+      ]
     },
     "DailyAnalytics": {
       "title": "DailyAnalytics",
@@ -282,6 +349,14 @@
     "/downloads/{eventId}": {
       "schema": { "$ref": "#/entities/DownloadEvent" },
       "description": "Skill download tracking events."
+    },
+    "/visitorSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/VisitorSession" },
+      "description": "Live visitor sessions tracking device OS, browser, and source platform."
+    },
+    "/downloadLeads/{leadId}": {
+      "schema": { "$ref": "#/entities/DownloadLead" },
+      "description": "Captured visitor emails submitted before downloading a skill."
     },
     "/analytics/{date}": {
       "schema": { "$ref": "#/entities/DailyAnalytics" },

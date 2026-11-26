@@ -3,6 +3,7 @@ export function updatePageSeo(params: {
   description: string;
   ogImage?: string;
   canonicalPath?: string;
+  noIndex?: boolean;
 }) {
   if (typeof document === 'undefined') return;
   document.title = params.title;
@@ -22,6 +23,13 @@ export function updatePageSeo(params: {
   setMeta('meta[property="og:description"]', 'property', 'og:description', params.description);
   setMeta('meta[name="twitter:title"]', 'name', 'twitter:title', params.title);
   setMeta('meta[name="twitter:description"]', 'name', 'twitter:description', params.description);
+
+  const robotsMeta = document.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
+  if (params.noIndex) {
+    setMeta('meta[name="robots"]', 'name', 'robots', 'noindex, nofollow');
+  } else if (robotsMeta) {
+    robotsMeta.setAttribute('content', 'index, follow');
+  }
 
   if (params.ogImage) {
     setMeta('meta[property="og:image"]', 'property', 'og:image', params.ogImage);

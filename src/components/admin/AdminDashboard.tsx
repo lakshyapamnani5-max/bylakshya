@@ -24,6 +24,7 @@ import { computeAnalyticsSummary } from '../../utils/skillsLogic';
 import { AdminSkillEditor } from './AdminSkillEditor';
 import { AdminFileManager } from './AdminFileManager';
 import { AdminPromptsManager } from './AdminPromptsManager';
+import { AdminAnalyticsView } from './AdminAnalyticsView';
 import {
   CategoryManager,
   HomepageManager,
@@ -58,6 +59,8 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
     categories,
     files,
     downloads,
+    visitorSessions,
+    downloadLeads,
     analytics,
     activityLogs,
     signInWithGoogle,
@@ -77,6 +80,11 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
     () => computeAnalyticsSummary(skills, downloads, analytics),
     [skills, downloads, analytics],
   );
+
+  const liveVisitorsCount = useMemo(() => {
+    const now = Date.now();
+    return visitorSessions.filter((s) => s.isActive !== false && now - s.lastSeenAt <= 90_000).length;
+  }, [visitorSessions]);
 
   const filteredSkills = useMemo(() => {
     return skills
@@ -178,7 +186,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
     { id: 'homepage', label: 'Homepage', icon: <Home className="w-4 h-4" /> },
     { id: 'pages', label: 'Pages', icon: <FileText className="w-4 h-4" /> },
     { id: 'posts', label: 'Blog & Updates', icon: <Newspaper className="w-4 h-4" /> },
-    { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-4 h-4" /> },
+    { id: 'analytics', label: 'Web Analytics', icon: <BarChart3 className="w-4 h-4" /> },
     { id: 'settings', label: 'Settings', icon: <Settings className="w-4 h-4" /> },
   ];
 
@@ -271,10 +279,11 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
         {/* Tab Views */}
         {tab === 'overview' && (
           <div className="space-y-8">
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
               {[
+                { label: 'Live Visitors', value: liveVisitorsCount },
+                { label: 'Captured Emails', value: downloadLeads.length },
                 { label: 'Published Skills', value: summary.publishedCount },
-                { label: 'Draft Skills', value: summary.draftCount },
                 { label: 'Total Downloads', value: summary.totalDownloads },
                 { label: 'Categories', value: categories.length },
                 { label: 'Uploaded Files', value: files.length },
@@ -491,45 +500,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
         {tab === 'posts' && <PostsManager />}
         {tab === 'settings' && <SettingsManager />}
 
-        {tab === 'analytics' && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="font-display text-2xl font-semibold text-[#18264F]">Analytics</h2>
-              <p className="text-xs text-[#18264F]/65">
-                Skill download counts, top performers, and daily activity.
-              </p>
-            </div>
-
-            <div className="bg-white rounded-2xl border border-[#18264F]/10 p-6 space-y-4">
-              <h3 className="font-display text-lg font-semibold text-[#18264F]">
-                Most Downloaded Skills
-              </h3>
-              <div className="space-y-3">
-                {summary.topSkills.map((sk) => {
-                  const pct = summary.totalDownloads
-                    ? Math.round((sk.downloadCount / summary.totalDownloads) * 100)
-                    : 0;
-                  return (
-                    <div key={sk.id} className="space-y-1">
-                      <div className="flex justify-between text-xs">
-                        <span className="font-semibold text-[#18264F]">{sk.title}</span>
-                        <span className="font-mono tabular-nums text-[#304A96]">
-                          {sk.downloadCount} ({pct}%)
-                        </span>
-                      </div>
-                      <div className="h-2 rounded-full bg-[#F5F5FA] overflow-hidden">
-                        <div
-                          style={{ width: `${Math.max(3, pct)}%` }}
-                          className="h-full bg-[#304A96] rounded-full"
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
+        {tab === 'analytics' && <AdminAnalyticsView />}
       </div>
     </div>
   );

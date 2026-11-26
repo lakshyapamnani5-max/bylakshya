@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { useCms } from '../context/CmsContext';
 import { renderSafeMarkdown } from '../utils/markdown';
 import { updatePageSeo } from '../utils/seo';
+import { NotFoundPage } from './not-found';
 
 interface UpdatesPageProps {
   slug?: string;
@@ -43,19 +44,7 @@ export function UpdatesPage({ slug, onNavigate }: UpdatesPageProps) {
   }, [activePost, settings.siteName]);
 
   if (slug && !activePost) {
-    return (
-      <main className="max-w-4xl mx-auto px-6 py-24 text-center space-y-4">
-        <h1 className="font-display text-3xl font-semibold text-[#18264F]">Article not found</h1>
-        <button
-          type="button"
-          onClick={() => onNavigate('/updates')}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#304A96] text-white text-sm font-semibold"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Back to Updates</span>
-        </button>
-      </main>
-    );
+    return <NotFoundPage onNavigate={onNavigate} />;
   }
 
   if (activePost) {

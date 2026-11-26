@@ -183,13 +183,68 @@ service cloud.firestore {
 
     function isValidDownloadEvent(data) {
       return data.keys().hasAll(['id', 'skillId', 'skillSlug', 'dateKey', 'createdAt'])
-        && data.keys().hasOnly(['id', 'skillId', 'skillSlug', 'fileId', 'dateKey', 'createdAt'])
+        && data.keys().hasOnly([
+          'id', 'skillId', 'skillSlug', 'fileId',
+          'deviceType', 'os', 'browser', 'platformSource',
+          'dateKey', 'createdAt'
+        ])
         && isValidId(data.id)
         && isValidId(data.skillId)
         && isValidString(data.skillSlug, 1, 120)
         && isValidString(data.dateKey, 8, 20)
         && (!('fileId' in data) || isValidString(data.fileId, 0, 128))
+        && (!('deviceType' in data) || data.deviceType in ['Mobile', 'Tablet', 'Desktop'])
+        && (!('os' in data) || data.os in ['Android', 'iOS', 'macOS', 'Windows', 'Linux', 'ChromeOS', 'Other'])
+        && (!('browser' in data) || isValidString(data.browser, 1, 60))
+        && (!('platformSource' in data) || isValidString(data.platformSource, 1, 60))
         && data.createdAt is number;
+    }
+
+    function isValidVisitorSession(data) {
+      return data.keys().hasAll([
+          'id', 'deviceType', 'os', 'deviceLabel', 'browser',
+          'platformSource', 'currentPath', 'pageViews', 'isActive', 'startedAt', 'lastSeenAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'deviceType', 'os', 'deviceLabel', 'browser',
+          'platformSource', 'referrerHost', 'currentPath', 'pageViews', 'isActive', 'startedAt', 'lastSeenAt'
+        ])
+        && isValidId(data.id)
+        && data.deviceType in ['Mobile', 'Tablet', 'Desktop']
+        && data.os in ['Android', 'iOS', 'macOS', 'Windows', 'Linux', 'ChromeOS', 'Other']
+        && isValidString(data.deviceLabel, 1, 80)
+        && isValidString(data.browser, 1, 60)
+        && isValidString(data.platformSource, 1, 60)
+        && (!('referrerHost' in data) || isValidString(data.referrerHost, 0, 180))
+        && isValidString(data.currentPath, 1, 200)
+        && data.pageViews is number && data.pageViews >= 1 && data.pageViews <= 10000
+        && data.isActive is bool
+        && data.startedAt is number && data.startedAt > 0
+        && data.lastSeenAt is number && data.lastSeenAt >= data.startedAt;
+    }
+
+    function isValidDownloadLead(data) {
+      return data.keys().hasAll([
+          'id', 'email', 'skillId', 'skillTitle', 'skillSlug',
+          'deviceType', 'os', 'browser', 'platformSource', 'dateKey', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'email', 'skillId', 'skillTitle', 'skillSlug',
+          'deviceType', 'os', 'browser', 'platformSource', 'dateKey', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && isValidString(data.email, 3, 200)
+        && data.email.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$')
+        && isValidId(data.skillId)
+        && isValidString(data.skillTitle, 1, 140)
+        && isValidString(data.skillSlug, 1, 120)
+        && data.skillSlug.matches('^[a-z0-9\\-]+$')
+        && data.deviceType in ['Mobile', 'Tablet', 'Desktop']
+        && data.os in ['Android', 'iOS', 'macOS', 'Windows', 'Linux', 'ChromeOS', 'Other']
+        && isValidString(data.browser, 1, 60)
+        && isValidString(data.platformSource, 1, 60)
+        && isValidString(data.dateKey, 8, 20)
+        && data.createdAt is number && data.createdAt > 0;
     }
 
     match /test/connection {
@@ -280,6 +335,25 @@ service cloud.firestore {
       allow get, list: if isAdmin();
       allow create: if isValidId(eventId) && isValidDownloadEvent(incoming()) && incoming().id == eventId;
       allow update, delete: if isAdmin() && isValidId(eventId);
+    }
+
+    match /visitorSessions/{sessionId} {
+      allow get, list: if isAdmin();
+      allow create: if isValidId(sessionId) && isValidVisitorSession(incoming()) && incoming().id == sessionId;
+      allow update: if isValidId(sessionId) && isValidVisitorSession(incoming()) && (
+        isAdmin() ||
+        (incoming().id == existing().id
+          && incoming().startedAt == existing().startedAt
+          && incoming().pageViews >= existing().pageViews
+          && incoming().diff(existing()).affectedKeys().hasOnly(['currentPath', 'pageViews', 'lastSeenAt', 'isActive']))
+      );
+      allow delete: if isAdmin() && isValidId(sessionId);
+    }
+
+    match /downloadLeads/{leadId} {
+      allow get, list: if isAdmin();
+      allow create: if isValidId(leadId) && isValidDownloadLead(incoming()) && incoming().id == leadId;
+      allow update, delete: if isAdmin() && isValidId(leadId);
     }
 
     match /analytics/{dateKey} {

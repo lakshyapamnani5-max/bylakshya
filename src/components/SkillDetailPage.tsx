@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -10,6 +10,7 @@ import {
   FileText,
   Film,
   Github,
+  Mail,
   X,
 } from 'lucide-react';
 import { useCms } from '../context/CmsContext';
@@ -20,8 +21,10 @@ import {
   getPublishedPromptsForSkill,
   isSafeUrl,
 } from '../utils/skillsLogic';
+import { isValidVisitorEmail } from '../utils/analyticsLogic';
 import { updatePageSeo } from '../utils/seo';
 import { SamplePromptsAccordion } from './SamplePromptsAccordion';
+import { NotFoundPage } from './not-found';
 
 interface SkillDetailPageProps {
   slug: string;
@@ -29,9 +32,15 @@ interface SkillDetailPageProps {
 }
 
 export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
-  const { skills, prompts, categories, settings, trackSkillDownload } = useCms();
+  const { skills, prompts, categories, settings, submitDownloadWithEmail } = useCms();
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [downloadedNotice, setDownloadedNotice] = useState(false);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [leadEmail, setLeadEmail] = useState('');
+  const [leadError, setLeadError] = useState('');
+  const [submittingLead, setSubmittingLead] = useState(false);
+  const [downloadUnlocked, setDownloadUnlocked] = useState(false);
+  const emailInputRef = useRef<HTMLInputElement>(null);
   const [installOpen, setInstallOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [changelogOpen, setChangelogOpen] = useState(false);
@@ -71,37 +80,61 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setLightboxImage(null);
+      if (e.key === 'Escape') {
+        setLightboxImage(null);
+        setEmailModalOpen(false);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  useEffect(() => {
+    if (emailModalOpen) {
+      setTimeout(() => emailInputRef.current?.focus(), 40);
+    }
+  }, [emailModalOpen]);
+
   if (!skill) {
-    return (
-      <main className="max-w-4xl mx-auto px-6 py-24 text-center space-y-5">
-        <h1 className="font-display text-3xl font-semibold text-[#18264F]">
-          Skill not found
-        </h1>
-        <p className="text-sm text-[#18264F]/70">
-          This skill may have been moved, unpublished, or renamed.
-        </p>
-        <button
-          type="button"
-          onClick={() => onNavigate('/')}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#304A96] text-white text-sm font-semibold hover:bg-[#18264F] transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Back to Skills Library</span>
-        </button>
-      </main>
-    );
+    return <NotFoundPage onNavigate={onNavigate} />;
   }
 
-  const handleDownloadClick = () => {
-    void trackSkillDownload(skill);
+  const triggerZipDownload = () => {
+    if (!skill.zipFileUrl) return;
+    const anchor = document.createElement('a');
+    anchor.href = skill.zipFileUrl;
+    anchor.download = skill.zipFileName || `${skill.slug}.zip`;
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
     setDownloadedNotice(true);
     setTimeout(() => setDownloadedNotice(false), 3500);
+  };
+
+  const handleOpenDownloadModal = () => {
+    setLeadError('');
+    setDownloadUnlocked(false);
+    setEmailModalOpen(true);
+  };
+
+  const handleLeadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLeadError('');
+    if (!isValidVisitorEmail(leadEmail)) {
+      setLeadError('Please enter a valid email address (for example, name@example.com).');
+      return;
+    }
+    setSubmittingLead(true);
+    try {
+      await submitDownloadWithEmail(skill, leadEmail);
+      setDownloadUnlocked(true);
+      triggerZipDownload();
+    } catch (err) {
+      setLeadError(err instanceof Error ? err.message : 'Unable to start download right now.');
+    } finally {
+      setSubmittingLead(false);
+    }
   };
 
   const formattedUpdatedDate = new Date(skill.updatedAt).toLocaleDateString('en-US', {
@@ -330,10 +363,10 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
       <section aria-label="Download skill" className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           {skill.pricingStatus === 'free' && skill.zipFileUrl ? (
-            <a
-              href={skill.zipFileUrl}
-              download={skill.zipFileName || `${skill.slug}.zip`}
-              onClick={handleDownloadClick}
+            <button
+              type="button"
+              data-testid="download-skill-btn"
+              onClick={handleOpenDownloadModal}
               className="inline-flex items-center gap-2.5 px-7 py-4 rounded-2xl bg-[#304A96] text-white text-sm font-semibold hover:bg-[#18264F] transition-colors shadow-xs"
             >
               {downloadedNotice ? (
@@ -346,7 +379,7 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
                   ? 'Downloading Skill ZIP...'
                   : `Download Skill (${formatFileSize(skill.zipFileSize)})`}
               </span>
-            </a>
+            </button>
           ) : skill.pricingStatus === 'premium' && isSafeUrl(skill.purchaseUrl) && skill.purchaseUrl ? (
             <a
               href={skill.purchaseUrl}
@@ -542,6 +575,127 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
             ))}
           </div>
         </section>
+      )}
+
+      {/* Email Gate Modal Before Downloading */}
+      {emailModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="download-email-modal-title"
+          className="fixed inset-0 z-50 bg-[#18264F]/65 flex items-center justify-center p-4 sm:p-6"
+          onClick={() => setEmailModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-3xl border border-[#18264F]/10 shadow-xl max-w-md w-full p-6 sm:p-8 space-y-5 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              aria-label="Close download prompt"
+              onClick={() => setEmailModalOpen(false)}
+              className="absolute top-5 right-5 w-9 h-9 rounded-xl bg-[#F5F5FA] text-[#18264F] flex items-center justify-center hover:bg-[#EAEAF6]"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {!downloadUnlocked ? (
+              <>
+                <div className="space-y-2 pr-8">
+                  <div className="w-10 h-10 rounded-2xl bg-[#EAEAF6] text-[#304A96] flex items-center justify-center">
+                    <Mail className="w-5 h-5" />
+                  </div>
+                  <h2
+                    id="download-email-modal-title"
+                    className="font-display text-2xl font-semibold text-[#18264F]"
+                  >
+                    Enter your email to download
+                  </h2>
+                  <p className="text-xs sm:text-sm text-[#18264F]/70 leading-relaxed">
+                    Get instant access to <span className="font-semibold text-[#18264F]">{skill.title}</span> ({formatFileSize(skill.zipFileSize)}) and future skill updates.
+                  </p>
+                </div>
+
+                <form onSubmit={(e) => void handleLeadSubmit(e)} noValidate className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="download-lead-email"
+                      className="block text-xs font-semibold text-[#18264F]"
+                    >
+                      Email address
+                    </label>
+                    <input
+                      ref={emailInputRef}
+                      id="download-lead-email"
+                      type="email"
+                      required
+                      value={leadEmail}
+                      onChange={(e) => {
+                        setLeadEmail(e.target.value);
+                        if (leadError) setLeadError('');
+                      }}
+                      placeholder="you@example.com"
+                      className="w-full px-4 py-3 rounded-xl bg-[#F5F5FA] border border-[#18264F]/15 text-sm text-[#18264F] placeholder:text-[#18264F]/40 focus:outline-none focus:ring-2 focus:ring-[#304A96]"
+                    />
+                  </div>
+
+                  {leadError && (
+                    <div
+                      role="alert"
+                      className="bg-red-50 border border-red-200 rounded-xl px-3.5 py-2.5 text-xs text-red-700 font-medium"
+                    >
+                      {leadError}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={submittingLead}
+                    className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl bg-[#304A96] text-white text-sm font-semibold hover:bg-[#18264F] transition-colors disabled:opacity-60"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>{submittingLead ? 'Preparing download...' : 'Continue to Download'}</span>
+                  </button>
+                </form>
+              </>
+            ) : (
+              <div className="space-y-5 text-center py-2">
+                <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
+                  <Check className="w-6 h-6" />
+                </div>
+                <div className="space-y-1.5">
+                  <h2
+                    id="download-email-modal-title"
+                    className="font-display text-2xl font-semibold text-[#18264F]"
+                  >
+                    Download started!
+                  </h2>
+                  <p className="text-xs sm:text-sm text-[#18264F]/70">
+                    Your package <span className="font-mono">{skill.zipFileName || `${skill.slug}.zip`}</span> is downloading now.
+                  </p>
+                </div>
+
+                <div className="space-y-2.5 pt-1">
+                  <a
+                    href={skill.zipFileUrl}
+                    download={skill.zipFileName || `${skill.slug}.zip`}
+                    className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-[#304A96] text-white text-xs font-semibold hover:bg-[#18264F]"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Click here if download didn&apos;t start</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setEmailModalOpen(false)}
+                    className="w-full py-2.5 rounded-xl bg-[#F5F5FA] text-[#18264F] text-xs font-semibold hover:bg-[#EAEAF6]"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Lightbox Modal */}

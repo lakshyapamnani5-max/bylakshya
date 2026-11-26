@@ -12,13 +12,22 @@ import type { Skill } from '../types/cms';
 
 interface HomePageProps {
   onNavigate: (path: string) => void;
+  initialSection?: string;
 }
 
-export function HomePage({ onNavigate }: HomePageProps) {
+export function HomePage({ onNavigate, initialSection }: HomePageProps) {
   const { homepage, skills, categories } = useCms();
   const heroRef = useRef<HTMLDivElement>(null);
 
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    if (!initialSection) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById(initialSection)?.scrollIntoView({ behavior: 'smooth' });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [initialSection]);
 
   useEffect(() => {
     const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;

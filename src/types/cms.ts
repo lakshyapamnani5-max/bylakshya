@@ -186,11 +186,47 @@ export interface SiteSettings {
   updatedAt: number;
 }
 
+export type DeviceType = 'Mobile' | 'Tablet' | 'Desktop';
+export type OsType = 'Android' | 'iOS' | 'macOS' | 'Windows' | 'Linux' | 'ChromeOS' | 'Other';
+
 export interface DownloadEvent {
   id: string;
   skillId: string;
   skillSlug: string;
   fileId?: string;
+  deviceType?: DeviceType;
+  os?: OsType;
+  browser?: string;
+  platformSource?: string;
+  dateKey: string;
+  createdAt: number;
+}
+
+export interface VisitorSession {
+  id: string;
+  deviceType: DeviceType;
+  os: OsType;
+  deviceLabel: string;
+  browser: string;
+  platformSource: string;
+  referrerHost?: string;
+  currentPath: string;
+  pageViews: number;
+  isActive: boolean;
+  startedAt: number;
+  lastSeenAt: number;
+}
+
+export interface DownloadLead {
+  id: string;
+  email: string;
+  skillId: string;
+  skillTitle: string;
+  skillSlug: string;
+  deviceType: DeviceType;
+  os: OsType;
+  browser: string;
+  platformSource: string;
   dateKey: string;
   createdAt: number;
 }
