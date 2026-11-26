@@ -21,357 +21,76 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isVerifiedUser() {
-      return isSignedIn() && request.auth.token.email_verified == true;
-    }
-
-    function isBootstrapAdmin() {
-      return isVerifiedUser() && request.auth.token.email == 'lakshaypamnani2@gmail.com';
-    }
-
-    function isAdmin() {
-      return isBootstrapAdmin() || (isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    function isVerifiedGoogleAdmin() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email == 'lakshaypamnani2@gmail.com'
+        && request.auth.token.firebase.sign_in_provider == 'google.com';
     }
 
     function isValidString(val, minLen, maxLen) {
       return val is string && val.size() >= minLen && val.size() <= maxLen;
     }
 
-    function isValidCategory(data) {
-      return data.keys().hasAll(['id', 'name', 'slug', 'order', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['id', 'name', 'slug', 'description', 'icon', 'order', 'createdAt', 'updatedAt'])
-        && isValidId(data.id)
-        && isValidString(data.name, 1, 60)
-        && isValidString(data.slug, 1, 80)
-        && data.slug.matches('^[a-z0-9\\-]+$')
-        && (!('description' in data) || isValidString(data.description, 0, 300))
-        && (!('icon' in data) || isValidString(data.icon, 0, 40))
-        && data.order is number
-        && data.createdAt is number
-        && data.updatedAt is number;
-    }
-
-    function isValidSkill(data) {
-      return data.keys().hasAll([
-          'id', 'title', 'slug', 'shortDescription', 'categoryId', 'version',
-          'pricingStatus', 'featured', 'status', 'downloadCount', 'createdAt', 'updatedAt'
-        ])
-        && data.keys().hasOnly([
-          'id', 'title', 'slug', 'shortDescription', 'content', 'categoryId', 'tags',
-          'author', 'version', 'coverImage', 'gallery', 'features', 'useCases',
-          'platforms', 'requirements', 'installation', 'usageGuide', 'changelog',
-          'zipFileId', 'zipFileName', 'zipFileUrl', 'zipFileSize', 'attachments',
-          'githubUrl', 'docsUrl', 'pricingStatus', 'purchaseUrl', 'featured', 'isNew',
-          'status', 'scheduledAt', 'downloadCount', 'seoTitle', 'seoDescription',
-          'ogImage', 'sampleVideos', 'createdAt', 'updatedAt', 'publishedAt'
-        ])
-        && isValidId(data.id)
-        && isValidString(data.title, 1, 120)
-        && isValidString(data.slug, 1, 120)
-        && data.slug.matches('^[a-z0-9\\-]+$')
-        && isValidString(data.shortDescription, 1, 400)
-        && isValidId(data.categoryId)
-        && isValidString(data.version, 1, 30)
-        && data.pricingStatus in ['free', 'premium']
-        && data.featured is bool
-        && data.status in ['draft', 'published', 'scheduled']
-        && data.downloadCount is number && data.downloadCount >= 0
-        && data.createdAt is number
-        && data.updatedAt is number
-        && (!('content' in data) || isValidString(data.content, 0, 30000))
-        && (!('installation' in data) || isValidString(data.installation, 0, 20000))
-        && (!('usageGuide' in data) || isValidString(data.usageGuide, 0, 20000))
-        && (!('changelog' in data) || isValidString(data.changelog, 0, 15000))
-        && (!('author' in data) || isValidString(data.author, 0, 80))
-        && (!('coverImage' in data) || isValidString(data.coverImage, 0, 500))
-        && (!('zipFileId' in data) || isValidString(data.zipFileId, 0, 128))
-        && (!('zipFileName' in data) || isValidString(data.zipFileName, 0, 200))
-        && (!('zipFileUrl' in data) || isValidString(data.zipFileUrl, 0, 500))
-        && (!('zipFileSize' in data) || data.zipFileSize is number)
-        && (!('githubUrl' in data) || isValidString(data.githubUrl, 0, 500))
-        && (!('docsUrl' in data) || isValidString(data.docsUrl, 0, 500))
-        && (!('purchaseUrl' in data) || isValidString(data.purchaseUrl, 0, 500))
-        && (!('seoTitle' in data) || isValidString(data.seoTitle, 0, 120))
-        && (!('seoDescription' in data) || isValidString(data.seoDescription, 0, 300))
-        && (!('ogImage' in data) || isValidString(data.ogImage, 0, 500))
-        && (!('tags' in data) || (data.tags is list && data.tags.size() <= 20))
-        && (!('gallery' in data) || (data.gallery is list && data.gallery.size() <= 20))
-        && (!('features' in data) || (data.features is list && data.features.size() <= 30))
-        && (!('useCases' in data) || (data.useCases is list && data.useCases.size() <= 30))
-        && (!('platforms' in data) || (data.platforms is list && data.platforms.size() <= 20))
-        && (!('requirements' in data) || (data.requirements is list && data.requirements.size() <= 30))
-        && (!('attachments' in data) || (data.attachments is list && data.attachments.size() <= 20))
-        && (!('sampleVideos' in data) || (data.sampleVideos is list && data.sampleVideos.size() <= 12));
-    }
-
-    function isValidPromptRecord(data) {
-      return data.keys().hasAll([
-          'id', 'skillId', 'title', 'slug', 'description', 'content',
-          'difficulty', 'displayOrder', 'featured', 'status', 'createdAt', 'updatedAt'
-        ])
-        && data.keys().hasOnly([
-          'id', 'skillId', 'title', 'slug', 'description', 'content',
-          'difficulty', 'displayOrder', 'featured', 'previewImage', 'status', 'createdAt', 'updatedAt'
-        ])
-        && isValidId(data.id)
-        && isValidId(data.skillId)
-        && isValidString(data.title, 1, 140)
-        && isValidString(data.slug, 1, 140)
-        && data.slug.matches('^[a-z0-9\\-]+$')
-        && isValidString(data.description, 0, 500)
-        && isValidString(data.content, 1, 30000)
-        && data.difficulty in ['Beginner', 'Intermediate', 'Advanced']
-        && data.displayOrder is number
-        && data.featured is bool
-        && data.status in ['draft', 'published']
-        && (!('previewImage' in data) || isValidString(data.previewImage, 0, 500))
-        && data.createdAt is number
-        && data.updatedAt is number;
-    }
-
     function isValidFileRecord(data) {
-      return data.keys().hasAll(['id', 'displayName', 'originalName', 'mimeType', 'size', 'category', 'url', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['id', 'displayName', 'originalName', 'mimeType', 'size', 'category', 'url', 'viewUrl', 'storagePath', 'uploadedBy', 'createdAt', 'updatedAt'])
+      return data.keys().hasAll([
+          'id', 'displayName', 'originalName', 'mimeType', 'size', 'category', 'url', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'displayName', 'originalName', 'mimeType', 'size', 'category',
+          'url', 'viewUrl', 'storagePath', 'storageType', 'chunkCount', 'uploadedBy', 'createdAt', 'updatedAt'
+        ])
         && isValidId(data.id)
         && isValidString(data.displayName, 1, 180)
         && isValidString(data.originalName, 1, 220)
         && isValidString(data.mimeType, 1, 120)
-        && data.size is number && data.size >= 0
+        && data.size is number && data.size >= 0 && data.size <= 20971520
         && data.category in ['zip', 'pdf', 'image', 'video', 'doc', 'other']
         && isValidString(data.url, 1, 500)
         && (!('viewUrl' in data) || isValidString(data.viewUrl, 0, 500))
         && (!('storagePath' in data) || isValidString(data.storagePath, 0, 500))
+        && (!('storageType' in data) || data.storageType in ['firestore', 'url'])
+        && (!('chunkCount' in data) || (data.chunkCount is number && data.chunkCount >= 1 && data.chunkCount <= 100))
         && (!('uploadedBy' in data) || isValidString(data.uploadedBy, 0, 128))
         && data.createdAt is number
         && data.updatedAt is number;
     }
 
-    function isValidPageRecord(data) {
-      return data.keys().hasAll(['id', 'slug', 'title', 'content', 'status', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['id', 'slug', 'title', 'subtitle', 'content', 'status', 'seoTitle', 'seoDescription', 'showInNav', 'showInFooter', 'createdAt', 'updatedAt'])
-        && isValidId(data.id)
-        && isValidString(data.slug, 1, 80)
-        && data.slug.matches('^[a-z0-9\\-]+$')
-        && isValidString(data.title, 1, 120)
-        && isValidString(data.content, 0, 40000)
-        && data.status in ['draft', 'published']
-        && (!('subtitle' in data) || isValidString(data.subtitle, 0, 240))
-        && (!('seoTitle' in data) || isValidString(data.seoTitle, 0, 120))
-        && (!('seoDescription' in data) || isValidString(data.seoDescription, 0, 300))
-        && data.createdAt is number
-        && data.updatedAt is number;
-    }
-
-    function isValidPostRecord(data) {
-      return data.keys().hasAll(['id', 'slug', 'title', 'content', 'kind', 'status', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['id', 'slug', 'title', 'excerpt', 'content', 'kind', 'coverImage', 'tags', 'status', 'seoTitle', 'seoDescription', 'publishedAt', 'createdAt', 'updatedAt'])
-        && isValidId(data.id)
-        && isValidString(data.slug, 1, 120)
-        && data.slug.matches('^[a-z0-9\\-]+$')
-        && isValidString(data.title, 1, 140)
-        && isValidString(data.content, 0, 40000)
-        && data.kind in ['article', 'tutorial', 'announcement', 'changelog']
-        && data.status in ['draft', 'published']
-        && (!('excerpt' in data) || isValidString(data.excerpt, 0, 400))
-        && (!('coverImage' in data) || isValidString(data.coverImage, 0, 500))
-        && (!('tags' in data) || (data.tags is list && data.tags.size() <= 20))
-        && (!('seoTitle' in data) || isValidString(data.seoTitle, 0, 120))
-        && (!('seoDescription' in data) || isValidString(data.seoDescription, 0, 300))
-        && data.createdAt is number
-        && data.updatedAt is number;
-    }
-
-    function isValidDownloadEvent(data) {
-      return data.keys().hasAll(['id', 'skillId', 'skillSlug', 'dateKey', 'createdAt'])
-        && data.keys().hasOnly([
-          'id', 'skillId', 'skillSlug', 'fileId',
-          'deviceType', 'os', 'browser', 'platformSource',
-          'dateKey', 'createdAt'
-        ])
-        && isValidId(data.id)
-        && isValidId(data.skillId)
-        && isValidString(data.skillSlug, 1, 120)
-        && isValidString(data.dateKey, 8, 20)
-        && (!('fileId' in data) || isValidString(data.fileId, 0, 128))
-        && (!('deviceType' in data) || data.deviceType in ['Mobile', 'Tablet', 'Desktop'])
-        && (!('os' in data) || data.os in ['Android', 'iOS', 'macOS', 'Windows', 'Linux', 'ChromeOS', 'Other'])
-        && (!('browser' in data) || isValidString(data.browser, 1, 60))
-        && (!('platformSource' in data) || isValidString(data.platformSource, 1, 60))
-        && data.createdAt is number;
-    }
-
-    function isValidVisitorSession(data) {
-      return data.keys().hasAll([
-          'id', 'deviceType', 'os', 'deviceLabel', 'browser',
-          'platformSource', 'currentPath', 'pageViews', 'isActive', 'startedAt', 'lastSeenAt'
-        ])
-        && data.keys().hasOnly([
-          'id', 'deviceType', 'os', 'deviceLabel', 'browser',
-          'platformSource', 'referrerHost', 'currentPath', 'pageViews', 'isActive', 'startedAt', 'lastSeenAt'
-        ])
-        && isValidId(data.id)
-        && data.deviceType in ['Mobile', 'Tablet', 'Desktop']
-        && data.os in ['Android', 'iOS', 'macOS', 'Windows', 'Linux', 'ChromeOS', 'Other']
-        && isValidString(data.deviceLabel, 1, 80)
-        && isValidString(data.browser, 1, 60)
-        && isValidString(data.platformSource, 1, 60)
-        && (!('referrerHost' in data) || isValidString(data.referrerHost, 0, 180))
-        && isValidString(data.currentPath, 1, 200)
-        && data.pageViews is number && data.pageViews >= 1 && data.pageViews <= 10000
-        && data.isActive is bool
-        && data.startedAt is number && data.startedAt > 0
-        && data.lastSeenAt is number && data.lastSeenAt >= data.startedAt;
-    }
-
-    function isValidDownloadLead(data) {
-      return data.keys().hasAll([
-          'id', 'email', 'skillId', 'skillTitle', 'skillSlug',
-          'deviceType', 'os', 'browser', 'platformSource', 'dateKey', 'createdAt'
-        ])
-        && data.keys().hasOnly([
-          'id', 'email', 'skillId', 'skillTitle', 'skillSlug',
-          'deviceType', 'os', 'browser', 'platformSource', 'dateKey', 'createdAt'
-        ])
-        && isValidId(data.id)
-        && isValidString(data.email, 3, 200)
-        && data.email.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$')
-        && isValidId(data.skillId)
-        && isValidString(data.skillTitle, 1, 140)
-        && isValidString(data.skillSlug, 1, 120)
-        && data.skillSlug.matches('^[a-z0-9\\-]+$')
-        && data.deviceType in ['Mobile', 'Tablet', 'Desktop']
-        && data.os in ['Android', 'iOS', 'macOS', 'Windows', 'Linux', 'ChromeOS', 'Other']
-        && isValidString(data.browser, 1, 60)
-        && isValidString(data.platformSource, 1, 60)
-        && isValidString(data.dateKey, 8, 20)
-        && data.createdAt is number && data.createdAt > 0;
+    function isValidFileChunk(data) {
+      return data.keys().hasAll(['index', 'data'])
+        && data.keys().hasOnly(['index', 'data'])
+        && data.index is number && data.index >= 0 && data.index < 100
+        && data.data is string && data.data.size() <= 900000;
     }
 
     match /test/connection {
       allow get: if isSignedIn();
     }
 
-    match /admins/{uid} {
-      allow get: if isSignedIn() && (request.auth.uid == uid || isAdmin());
-      allow list: if isAdmin();
-      allow create, update, delete: if isAdmin() && isValidId(uid);
-    }
-
-    match /siteSettings/{docId} {
-      allow get: if isValidId(docId);
-      allow list: if true;
-      allow create, update: if isAdmin() && isValidId(docId)
-        && incoming().keys().hasAll(['siteName', 'logoText', 'contactEmail', 'updatedAt'])
-        && isValidString(incoming().siteName, 1, 80)
-        && isValidString(incoming().logoText, 1, 40);
-      allow delete: if isAdmin() && isValidId(docId);
-    }
-
-    match /homepage/{docId} {
-      allow get: if isValidId(docId);
-      allow list: if true;
-      allow create, update: if isAdmin() && isValidId(docId)
-        && incoming().keys().hasAll(['heroHeading', 'heroSubheading', 'heroDescription', 'updatedAt'])
-        && isValidString(incoming().heroHeading, 1, 120)
-        && isValidString(incoming().heroSubheading, 1, 180)
-        && isValidString(incoming().heroDescription, 1, 400);
-      allow delete: if isAdmin() && isValidId(docId);
-    }
-
-    match /categories/{categoryId} {
-      allow get: if isValidId(categoryId);
-      allow list: if true;
-      allow create: if isAdmin() && isValidId(categoryId) && isValidCategory(incoming()) && incoming().id == categoryId;
-      allow update: if isAdmin() && isValidId(categoryId) && isValidCategory(incoming()) && incoming().id == existing().id && incoming().createdAt == existing().createdAt;
-      allow delete: if isAdmin() && isValidId(categoryId);
-    }
-
-    match /skills/{skillId} {
-      allow get: if isValidId(skillId) && (resource.data.status == 'published' || isAdmin());
-      allow list: if resource.data.status == 'published' || isAdmin();
-      allow create: if isAdmin() && isValidId(skillId) && isValidSkill(incoming()) && incoming().id == skillId;
-      allow update: if isValidId(skillId) && isValidSkill(incoming()) && (
-        (isAdmin() && incoming().id == existing().id && incoming().createdAt == existing().createdAt) ||
-        (existing().status == 'published'
-          && incoming().diff(existing()).affectedKeys().hasOnly(['downloadCount'])
-          && incoming().downloadCount == existing().downloadCount + 1)
-      );
-      allow delete: if isAdmin() && isValidId(skillId);
-    }
-
-    match /prompts/{promptId} {
-      allow get: if isValidId(promptId) && (resource.data.status == 'published' || isAdmin());
-      allow list: if resource.data.status == 'published' || isAdmin();
-      allow create: if isAdmin() && isValidId(promptId) && isValidPromptRecord(incoming()) && incoming().id == promptId;
-      allow update: if isAdmin() && isValidId(promptId) && isValidPromptRecord(incoming()) && incoming().id == existing().id && incoming().createdAt == existing().createdAt;
-      allow delete: if isAdmin() && isValidId(promptId);
-    }
-
+    // Cloud Firestore stores uploaded files ONLY (metadata + base64 chunks)
     match /files/{fileId} {
       allow get: if isValidId(fileId);
-      allow list: if isAdmin();
-      allow create: if isAdmin() && isValidId(fileId) && isValidFileRecord(incoming()) && incoming().id == fileId;
-      allow update: if isAdmin() && isValidId(fileId) && isValidFileRecord(incoming()) && incoming().id == existing().id && incoming().createdAt == existing().createdAt;
-      allow delete: if isAdmin() && isValidId(fileId);
-    }
+      allow list: if isVerifiedGoogleAdmin();
+      allow create: if isVerifiedGoogleAdmin()
+        && isValidId(fileId)
+        && isValidFileRecord(incoming())
+        && incoming().id == fileId;
+      allow update: if isVerifiedGoogleAdmin()
+        && isValidId(fileId)
+        && isValidFileRecord(incoming())
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isVerifiedGoogleAdmin() && isValidId(fileId);
 
-    match /pages/{pageId} {
-      allow get: if isValidId(pageId) && (resource.data.status == 'published' || isAdmin());
-      allow list: if resource.data.status == 'published' || isAdmin();
-      allow create: if isAdmin() && isValidId(pageId) && isValidPageRecord(incoming()) && incoming().id == pageId;
-      allow update: if isAdmin() && isValidId(pageId) && isValidPageRecord(incoming()) && incoming().id == existing().id && incoming().createdAt == existing().createdAt;
-      allow delete: if isAdmin() && isValidId(pageId);
-    }
-
-    match /posts/{postId} {
-      allow get: if isValidId(postId) && (resource.data.status == 'published' || isAdmin());
-      allow list: if resource.data.status == 'published' || isAdmin();
-      allow create: if isAdmin() && isValidId(postId) && isValidPostRecord(incoming()) && incoming().id == postId;
-      allow update: if isAdmin() && isValidId(postId) && isValidPostRecord(incoming()) && incoming().id == existing().id && incoming().createdAt == existing().createdAt;
-      allow delete: if isAdmin() && isValidId(postId);
-    }
-
-    match /downloads/{eventId} {
-      allow get, list: if isAdmin();
-      allow create: if isValidId(eventId) && isValidDownloadEvent(incoming()) && incoming().id == eventId;
-      allow update, delete: if isAdmin() && isValidId(eventId);
-    }
-
-    match /visitorSessions/{sessionId} {
-      allow get, list: if isAdmin();
-      allow create: if isValidId(sessionId) && isValidVisitorSession(incoming()) && incoming().id == sessionId;
-      allow update: if isValidId(sessionId) && isValidVisitorSession(incoming()) && (
-        isAdmin() ||
-        (incoming().id == existing().id
-          && incoming().startedAt == existing().startedAt
-          && incoming().pageViews >= existing().pageViews
-          && incoming().diff(existing()).affectedKeys().hasOnly(['currentPath', 'pageViews', 'lastSeenAt', 'isActive']))
-      );
-      allow delete: if isAdmin() && isValidId(sessionId);
-    }
-
-    match /downloadLeads/{leadId} {
-      allow get, list: if isAdmin();
-      allow create: if isValidId(leadId) && isValidDownloadLead(incoming()) && incoming().id == leadId;
-      allow update, delete: if isAdmin() && isValidId(leadId);
-    }
-
-    match /analytics/{dateKey} {
-      allow get, list, create, update, delete: if isAdmin() && isValidId(dateKey);
-    }
-
-    match /activityLogs/{logId} {
-      allow get, list: if isAdmin();
-      allow create: if isAdmin() && isValidId(logId)
-        && incoming().keys().hasAll(['id', 'actorEmail', 'action', 'entityType', 'entityTitle', 'createdAt'])
-        && incoming().keys().hasOnly(['id', 'actorEmail', 'action', 'entityType', 'entityTitle', 'createdAt'])
-        && isValidId(incoming().id)
-        && isValidString(incoming().actorEmail, 1, 200)
-        && isValidString(incoming().action, 1, 80)
-        && isValidString(incoming().entityType, 1, 40)
-        && isValidString(incoming().entityTitle, 1, 140)
-        && incoming().createdAt is number;
-      allow update, delete: if isAdmin() && isValidId(logId);
+      match /chunks/{chunkId} {
+        allow get: if isValidId(fileId) && isValidId(chunkId);
+        allow list: if isValidId(fileId);
+        allow create, update: if isVerifiedGoogleAdmin()
+          && isValidId(fileId)
+          && isValidId(chunkId)
+          && isValidFileChunk(incoming());
+        allow delete: if isVerifiedGoogleAdmin() && isValidId(fileId) && isValidId(chunkId);
+      }
     }
   }
 }

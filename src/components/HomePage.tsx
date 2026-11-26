@@ -9,6 +9,7 @@ import {
   paginateItems,
 } from '../utils/skillsLogic';
 import type { Skill } from '../types/cms';
+import { ResolvedImg } from './ResolvedMedia';
 
 interface HomePageProps {
   onNavigate: (path: string) => void;
@@ -86,7 +87,7 @@ export function HomePage({ onNavigate, initialSection }: HomePageProps) {
       >
         <div className="aspect-video w-full bg-[#EAEAF6] overflow-hidden relative">
           {skill.coverImage ? (
-            <img
+            <ResolvedImg
               src={skill.coverImage}
               alt={skill.title}
               loading="lazy"

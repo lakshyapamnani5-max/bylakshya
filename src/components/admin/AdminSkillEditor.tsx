@@ -29,6 +29,7 @@ import {
 } from '../../utils/skillsLogic';
 import { renderSafeMarkdown } from '../../utils/markdown';
 import { SamplePromptsAccordion } from '../SamplePromptsAccordion';
+import { ResolvedImg } from '../ResolvedMedia';
 
 interface AdminSkillEditorProps {
   initialSkill: Skill | null;
@@ -731,7 +732,7 @@ export function AdminSkillEditor({ initialSkill, onClose, onSaved }: AdminSkillE
             )}
             {coverImage && (
               <div className="aspect-video w-full max-w-xs rounded-xl overflow-hidden border border-[#18264F]/10 bg-[#F5F5FA]">
-                <img
+                <ResolvedImg
                   src={coverImage}
                   alt="Cover preview"
                   referrerPolicy="no-referrer"

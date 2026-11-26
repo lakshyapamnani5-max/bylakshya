@@ -102,6 +102,8 @@ export interface FileRecord {
   url: string;
   viewUrl?: string;
   storagePath: string;
+  storageType?: 'firestore' | 'url';
+  chunkCount?: number;
   uploadedBy: string;
   createdAt: number;
   updatedAt: number;
@@ -220,6 +222,8 @@ export interface VisitorSession {
 export interface DownloadLead {
   id: string;
   email: string;
+  uid?: string;
+  authProvider?: string;
   skillId: string;
   skillTitle: string;
   skillSlug: string;

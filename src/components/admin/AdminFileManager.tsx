@@ -17,6 +17,21 @@ import {
 import { useCms } from '../../context/CmsContext';
 import type { FileCategory, FileRecord } from '../../types/cms';
 import { formatFileSize, isFileReferencedByContent } from '../../utils/skillsLogic';
+import { extractFirestoreFileId } from '../../utils/firestoreFiles';
+import { useResolvedFileUrl } from '../../utils/useResolvedFileUrl';
+import { ResolvedImg, ResolvedVideo } from '../ResolvedMedia';
+
+function ResolvedPdfFrame({ src, title }: { src: string; title: string }) {
+  const resolved = useResolvedFileUrl(src);
+  if (!resolved) {
+    return (
+      <div className="w-full h-[70vh] rounded-xl border bg-[#F5F5FA] flex items-center justify-center text-xs text-[#18264F]/60">
+        Loading PDF preview from Firestore...
+      </div>
+    );
+  }
+  return <iframe src={resolved} title={title} className="w-full h-[70vh] rounded-xl border" />;
+}
 
 export function AdminFileManager() {
   const { files, skills, posts, prompts, uploadFile, renameFile, replaceFile, deleteFileRecord } = useCms();
@@ -92,8 +107,9 @@ export function AdminFileManager() {
   };
 
   const handleCopyUrl = async (record: FileRecord) => {
-    const fullUrl = window.location.origin + (record.viewUrl || record.url);
-    await navigator.clipboard.writeText(fullUrl);
+    const raw = record.viewUrl || record.url;
+    const copyValue = extractFirestoreFileId(raw) ? raw : window.location.origin + raw;
+    await navigator.clipboard.writeText(copyValue);
     setCopiedId(record.id);
     setTimeout(() => setCopiedId(null), 2000);
   };
@@ -111,7 +127,7 @@ export function AdminFileManager() {
         <div>
           <h2 className="font-display text-2xl font-semibold text-[#18264F]">File Manager</h2>
           <p className="text-xs text-[#18264F]/65 mt-0.5">
-            Upload ZIP bundles, PDFs, images, videos, and Markdown documentation.
+            Upload ZIP bundles, PDFs, images, videos, and Markdown docs stored directly in Cloud Firestore.
           </p>
         </div>
 
@@ -331,24 +347,23 @@ export function AdminFileManager() {
               </button>
             </div>
             {previewFile.category === 'image' && (
-              <img
+              <ResolvedImg
                 src={previewFile.viewUrl || previewFile.url}
                 alt={previewFile.displayName}
                 className="max-h-[70vh] mx-auto rounded-xl object-contain"
               />
             )}
             {previewFile.category === 'video' && (
-              <video
+              <ResolvedVideo
                 src={previewFile.viewUrl || previewFile.url}
                 controls
                 className="w-full max-h-[70vh] rounded-xl"
               />
             )}
             {previewFile.category === 'pdf' && (
-              <iframe
+              <ResolvedPdfFrame
                 src={previewFile.viewUrl || previewFile.url}
                 title={previewFile.displayName}
-                className="w-full h-[70vh] rounded-xl border"
               />
             )}
           </div>

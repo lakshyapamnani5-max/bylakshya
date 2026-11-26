@@ -1,25 +1,43 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import {
   collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  onSnapshot,
-  query,
-  setDoc,
-  updateDoc,
-  where,
-  writeBatch,
-  increment,
+  doc as fsDoc,
+  getDoc as fsGetDoc,
+  onSnapshot as fsOnSnapshot,
+  setDoc as fsSetDoc,
+  updateDoc as fsUpdateDoc,
 } from 'firebase/firestore';
-import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
+import {
+  equalTo,
+  get as rtdbGet,
+  onValue,
+  orderByChild,
+  query as rtdbQuery,
+  ref as rtdbRef,
+  remove as rtdbRemove,
+  runTransaction,
+  set as rtdbSet,
+  update as rtdbUpdate,
+} from 'firebase/database';
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  updateProfile,
+  type User,
+} from 'firebase/auth';
 import {
   auth,
   BOOTSTRAP_ADMIN_EMAIL,
   db,
   googleProvider,
   handleFirestoreError,
+  isVerifiedGoogleAdmin,
   OperationType,
+  rtdb,
   testConnection,
 } from '../firebase';
 import {
@@ -53,8 +71,21 @@ import { generateSafeId } from '../utils/skillsLogic';
 import {
   detectClientDevice,
   detectTrafficPlatform,
-  isValidVisitorEmail,
 } from '../utils/analyticsLogic';
+import {
+  normalizeHomepageFromRtdb,
+  normalizePageFromRtdb,
+  normalizePostFromRtdb,
+  normalizeSiteSettingsFromRtdb,
+  normalizeSkillFromRtdb,
+  rtdbMapToArray,
+  stripUndefinedDeep,
+} from '../utils/rtdbHelpers';
+import {
+  deleteFileFromFirestore,
+  replaceFileInFirestore,
+  uploadFileToFirestore,
+} from '../utils/firestoreFiles';
 
 interface CmsContextValue {
   settings: SiteSettings;
@@ -75,7 +106,10 @@ interface CmsContextValue {
   isAdmin: boolean;
   isSeeding: boolean;
   dbConnected: boolean;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: () => Promise<User>;
+  signInWithEmail: (email: string, password: string) => Promise<User>;
+  registerWithEmail: (email: string, password: string, displayName?: string) => Promise<User>;
+  sendPasswordReset: (email: string) => Promise<void>;
   signOutUser: () => Promise<void>;
   seedInitialDatabase: () => Promise<void>;
   saveSkill: (skill: Skill) => Promise<void>;
@@ -97,7 +131,7 @@ interface CmsContextValue {
   replaceFile: (fileRecord: FileRecord, newFile: File) => Promise<FileRecord>;
   deleteFileRecord: (fileRecord: FileRecord) => Promise<void>;
   trackSkillDownload: (skill: Skill) => Promise<void>;
-  submitDownloadWithEmail: (skill: Skill, email: string) => Promise<void>;
+  recordAuthenticatedDownload: (skill: Skill, authenticatedUser?: User | null) => Promise<void>;
   trackPageVisit: (path: string) => void;
 }
 
@@ -139,7 +173,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
       };
       setActivityLogs((prev) => [entry, ...prev].slice(0, 50));
       try {
-        await setDoc(doc(db, 'activityLogs', entry.id), entry);
+        await rtdbSet(rtdbRef(rtdb, `activityLogs/${entry.id}`), stripUndefinedDeep(entry));
       } catch (err) {
         console.warn('Activity log write skipped:', err);
       }
@@ -147,204 +181,212 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  // Auth listener & admin verification
+  // Auth listener: Admin is strictly Google Sign-In for lakshaypamnani2@gmail.com
   useEffect(() => {
     void testConnection().then(setDbConnected);
-    const unsub = onAuthStateChanged(auth, async (nextUser) => {
+    const unsub = onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
-      if (nextUser && nextUser.emailVerified) {
-        const emailMatch = (nextUser.email || '').toLowerCase() === BOOTSTRAP_ADMIN_EMAIL;
-        if (emailMatch) {
-          setIsAdmin(true);
-          setAuthReady(true);
-          return;
-        }
-        try {
-          const adminSnap = await getDocs(query(collection(db, 'admins'), where('uid', '==', nextUser.uid)));
-          setIsAdmin(!adminSnap.empty);
-        } catch {
-          setIsAdmin(false);
-        }
-      } else {
-        setIsAdmin(false);
-      }
+      setIsAdmin(isVerifiedGoogleAdmin(nextUser));
       setAuthReady(true);
     });
     return () => unsub();
   }, []);
 
-  // Public + Admin Firestore listeners
+  // Realtime Database listeners for text/CMS/analytics + Firestore listener for files ONLY
   useEffect(() => {
     if (!authReady) return;
 
     const unsubs: (() => void)[] = [];
 
     unsubs.push(
-      onSnapshot(
-        doc(db, 'siteSettings', 'main'),
+      onValue(
+        rtdbRef(rtdb, 'siteSettings/main'),
         (snap) => {
-          if (snap.exists()) setSettings(snap.data() as SiteSettings);
-        },
-        (err) => console.warn('siteSettings listener:', err.message),
-      ),
-    );
-
-    unsubs.push(
-      onSnapshot(
-        doc(db, 'homepage', 'main'),
-        (snap) => {
-          if (snap.exists()) setHomepage(snap.data() as HomepageConfig);
-        },
-        (err) => console.warn('homepage listener:', err.message),
-      ),
-    );
-
-    unsubs.push(
-      onSnapshot(
-        collection(db, 'categories'),
-        (snap) => {
-          if (!snap.empty) {
-            const list = snap.docs
-              .map((d) => d.data() as Category)
-              .sort((a, b) => a.order - b.order);
-            setCategories(list);
+          if (snap.exists()) {
+            setSettings(
+              normalizeSiteSettingsFromRtdb(
+                snap.val() as Partial<SiteSettings>,
+                INITIAL_SITE_SETTINGS,
+              ),
+            );
           }
         },
-        (err) => console.warn('categories listener:', err.message),
+        (err) => console.warn('RTDB siteSettings listener:', err.message),
       ),
     );
 
-    const skillsQuery = isAdmin
-      ? collection(db, 'skills')
-      : query(collection(db, 'skills'), where('status', '==', 'published'));
     unsubs.push(
-      onSnapshot(
-        skillsQuery,
+      onValue(
+        rtdbRef(rtdb, 'homepage/main'),
         (snap) => {
-          if (!snap.empty) {
-            setSkills(snap.docs.map((d) => d.data() as Skill));
+          if (snap.exists()) {
+            setHomepage(
+              normalizeHomepageFromRtdb(
+                snap.val() as Partial<HomepageConfig>,
+                INITIAL_HOMEPAGE_CONFIG,
+              ),
+            );
           }
         },
-        (err) => console.warn('skills listener:', err.message),
+        (err) => console.warn('RTDB homepage listener:', err.message),
       ),
     );
 
-    const promptsQuery = isAdmin
-      ? collection(db, 'prompts')
-      : query(collection(db, 'prompts'), where('status', '==', 'published'));
     unsubs.push(
-      onSnapshot(
-        promptsQuery,
+      onValue(
+        rtdbRef(rtdb, 'categories'),
         (snap) => {
-          if (!snap.empty || isAdmin) {
-            const list = snap.docs
-              .map((d) => d.data() as SamplePrompt)
-              .sort((a, b) => a.displayOrder - b.displayOrder || a.createdAt - b.createdAt);
+          if (snap.exists()) {
+            const list = rtdbMapToArray<Category>(snap.val()).sort((a, b) => a.order - b.order);
+            if (list.length > 0) setCategories(list);
+          }
+        },
+        (err) => console.warn('RTDB categories listener:', err.message),
+      ),
+    );
+
+    const skillsTarget = isAdmin
+      ? rtdbRef(rtdb, 'skills')
+      : rtdbQuery(rtdbRef(rtdb, 'skills'), orderByChild('status'), equalTo('published'));
+    unsubs.push(
+      onValue(
+        skillsTarget,
+        (snap) => {
+          if (snap.exists()) {
+            const list = rtdbMapToArray<Partial<Skill>>(snap.val()).map(normalizeSkillFromRtdb);
+            if (list.length > 0 || isAdmin) setSkills(list);
+          }
+        },
+        (err) => console.warn('RTDB skills listener:', err.message),
+      ),
+    );
+
+    const promptsTarget = isAdmin
+      ? rtdbRef(rtdb, 'prompts')
+      : rtdbQuery(rtdbRef(rtdb, 'prompts'), orderByChild('status'), equalTo('published'));
+    unsubs.push(
+      onValue(
+        promptsTarget,
+        (snap) => {
+          if (snap.exists() || isAdmin) {
+            const list = rtdbMapToArray<SamplePrompt>(snap.val()).sort(
+              (a, b) => a.displayOrder - b.displayOrder || a.createdAt - b.createdAt,
+            );
             setPrompts(list);
           }
         },
-        (err) => console.warn('prompts listener:', err.message),
+        (err) => console.warn('RTDB prompts listener:', err.message),
       ),
     );
 
-    const pagesQuery = isAdmin
-      ? collection(db, 'pages')
-      : query(collection(db, 'pages'), where('status', '==', 'published'));
+    const pagesTarget = isAdmin
+      ? rtdbRef(rtdb, 'pages')
+      : rtdbQuery(rtdbRef(rtdb, 'pages'), orderByChild('status'), equalTo('published'));
     unsubs.push(
-      onSnapshot(
-        pagesQuery,
+      onValue(
+        pagesTarget,
         (snap) => {
-          if (!snap.empty) {
-            setPages(snap.docs.map((d) => d.data() as PageRecord));
+          if (snap.exists()) {
+            const list = rtdbMapToArray<Partial<PageRecord>>(snap.val()).map(normalizePageFromRtdb);
+            if (list.length > 0 || isAdmin) setPages(list);
           }
         },
-        (err) => console.warn('pages listener:', err.message),
+        (err) => console.warn('RTDB pages listener:', err.message),
       ),
     );
 
-    const postsQuery = isAdmin
-      ? collection(db, 'posts')
-      : query(collection(db, 'posts'), where('status', '==', 'published'));
+    const postsTarget = isAdmin
+      ? rtdbRef(rtdb, 'posts')
+      : rtdbQuery(rtdbRef(rtdb, 'posts'), orderByChild('status'), equalTo('published'));
     unsubs.push(
-      onSnapshot(
-        postsQuery,
+      onValue(
+        postsTarget,
         (snap) => {
-          if (!snap.empty) {
-            setPosts(snap.docs.map((d) => d.data() as PostRecord));
+          if (snap.exists()) {
+            const list = rtdbMapToArray<Partial<PostRecord>>(snap.val()).map(normalizePostFromRtdb);
+            if (list.length > 0 || isAdmin) setPosts(list);
           }
         },
-        (err) => console.warn('posts listener:', err.message),
+        (err) => console.warn('RTDB posts listener:', err.message),
       ),
     );
 
     if (isAdmin) {
+      // Cloud Firestore: FILES ONLY
       unsubs.push(
-        onSnapshot(
+        fsOnSnapshot(
           collection(db, 'files'),
           (snap) => {
             if (!snap.empty) {
               setFiles(snap.docs.map((d) => d.data() as FileRecord));
             }
           },
-          (err) => console.warn('files listener:', err.message),
+          (err) => console.warn('Firestore files listener:', err.message),
         ),
       );
+
+      // Realtime Database: analytics & logs
       unsubs.push(
-        onSnapshot(
-          collection(db, 'downloads'),
+        onValue(
+          rtdbRef(rtdb, 'downloads'),
           (snap) => {
-            setDownloads(snap.docs.map((d) => d.data() as DownloadEvent));
+            setDownloads(rtdbMapToArray<DownloadEvent>(snap.val()));
           },
-          (err) => console.warn('downloads listener:', err.message),
+          (err) => console.warn('RTDB downloads listener:', err.message),
         ),
       );
+
       unsubs.push(
-        onSnapshot(
-          collection(db, 'analytics'),
+        onValue(
+          rtdbRef(rtdb, 'analytics'),
           (snap) => {
-            if (!snap.empty) {
-              setAnalytics(snap.docs.map((d) => d.data() as DailyAnalytics));
+            if (snap.exists()) {
+              const list = rtdbMapToArray<DailyAnalytics>(snap.val());
+              if (list.length > 0) setAnalytics(list);
             }
           },
-          (err) => console.warn('analytics listener:', err.message),
+          (err) => console.warn('RTDB analytics listener:', err.message),
         ),
       );
+
       unsubs.push(
-        onSnapshot(
-          collection(db, 'visitorSessions'),
+        onValue(
+          rtdbRef(rtdb, 'visitorSessions'),
           (snap) => {
-            const list = snap.docs
-              .map((d) => d.data() as VisitorSession)
-              .sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+            const list = rtdbMapToArray<VisitorSession>(snap.val()).sort(
+              (a, b) => b.lastSeenAt - a.lastSeenAt,
+            );
             setVisitorSessions(list);
           },
-          (err) => console.warn('visitorSessions listener:', err.message),
+          (err) => console.warn('RTDB visitorSessions listener:', err.message),
         ),
       );
+
       unsubs.push(
-        onSnapshot(
-          collection(db, 'downloadLeads'),
+        onValue(
+          rtdbRef(rtdb, 'downloadLeads'),
           (snap) => {
-            const list = snap.docs
-              .map((d) => d.data() as DownloadLead)
-              .sort((a, b) => b.createdAt - a.createdAt);
+            const list = rtdbMapToArray<DownloadLead>(snap.val()).sort(
+              (a, b) => b.createdAt - a.createdAt,
+            );
             setDownloadLeads(list);
           },
-          (err) => console.warn('downloadLeads listener:', err.message),
+          (err) => console.warn('RTDB downloadLeads listener:', err.message),
         ),
       );
+
       unsubs.push(
-        onSnapshot(
-          collection(db, 'activityLogs'),
+        onValue(
+          rtdbRef(rtdb, 'activityLogs'),
           (snap) => {
-            if (!snap.empty) {
-              const logs = snap.docs
-                .map((d) => d.data() as ActivityLog)
-                .sort((a, b) => b.createdAt - a.createdAt);
-              setActivityLogs(logs);
+            if (snap.exists()) {
+              const logs = rtdbMapToArray<ActivityLog>(snap.val()).sort(
+                (a, b) => b.createdAt - a.createdAt,
+              );
+              if (logs.length > 0) setActivityLogs(logs);
             }
           },
-          (err) => console.warn('activityLogs listener:', err.message),
+          (err) => console.warn('RTDB activityLogs listener:', err.message),
         ),
       );
     }
@@ -357,68 +399,75 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
   const seedInitialDatabase = useCallback(async () => {
     setIsSeeding(true);
     try {
-      const batch = writeBatch(db);
-      batch.set(doc(db, 'siteSettings', 'main'), INITIAL_SITE_SETTINGS);
-      batch.set(doc(db, 'homepage', 'main'), INITIAL_HOMEPAGE_CONFIG);
+      const updates: Record<string, unknown> = {
+        'siteSettings/main': stripUndefinedDeep(INITIAL_SITE_SETTINGS),
+        'homepage/main': stripUndefinedDeep(INITIAL_HOMEPAGE_CONFIG),
+      };
       for (const cat of INITIAL_CATEGORIES) {
-        batch.set(doc(db, 'categories', cat.id), cat);
+        updates[`categories/${cat.id}`] = stripUndefinedDeep(cat);
       }
       for (const sk of INITIAL_SKILLS) {
-        batch.set(doc(db, 'skills', sk.id), sk);
+        updates[`skills/${sk.id}`] = stripUndefinedDeep(sk);
       }
       for (const pr of INITIAL_PROMPTS) {
-        batch.set(doc(db, 'prompts', pr.id), pr);
-      }
-      for (const f of INITIAL_FILES) {
-        batch.set(doc(db, 'files', f.id), f);
+        updates[`prompts/${pr.id}`] = stripUndefinedDeep(pr);
       }
       for (const p of INITIAL_PAGES) {
-        batch.set(doc(db, 'pages', p.id), p);
+        updates[`pages/${p.id}`] = stripUndefinedDeep(p);
       }
       for (const post of INITIAL_POSTS) {
-        batch.set(doc(db, 'posts', post.id), post);
+        updates[`posts/${post.id}`] = stripUndefinedDeep(post);
       }
       for (const day of INITIAL_DAILY_ANALYTICS) {
-        batch.set(doc(db, 'analytics', day.date), day);
+        updates[`analytics/${day.date}`] = stripUndefinedDeep(day);
       }
       for (const log of INITIAL_ACTIVITY_LOGS) {
-        batch.set(doc(db, 'activityLogs', log.id), log);
+        updates[`activityLogs/${log.id}`] = stripUndefinedDeep(log);
       }
       if (auth.currentUser) {
-        batch.set(doc(db, 'admins', auth.currentUser.uid), {
+        updates[`admins/${auth.currentUser.uid}`] = {
           uid: auth.currentUser.uid,
           email: auth.currentUser.email || BOOTSTRAP_ADMIN_EMAIL,
           role: 'admin',
           addedAt: Date.now(),
-        });
+        };
       }
-      await batch.commit();
-      await logActivity('Seeded initial website content', 'system', 'Initial CMS Dataset');
+      await rtdbUpdate(rtdbRef(rtdb), updates);
+
+      // Seed starter file metadata in Cloud Firestore (files ONLY)
+      for (const f of INITIAL_FILES) {
+        const existingSnap = await fsGetDoc(fsDoc(db, 'files', f.id));
+        if (!existingSnap.exists()) {
+          await fsSetDoc(fsDoc(db, 'files', f.id), f);
+        }
+      }
+
+      await logActivity('Seeded initial website content', 'system', 'RTDB + Firestore Files');
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'batch-seed');
+      handleFirestoreError(error, OperationType.WRITE, 'rtdb-seed');
     } finally {
       setIsSeeding(false);
     }
   }, [logActivity]);
 
-  // Auto-seed Firestore once when admin signs in and /skills or /prompts is empty
+  // Auto-seed Realtime Database once when verified Google admin signs in and /skills or /prompts is empty
   useEffect(() => {
     if (!isAdmin || !user) return;
     let active = true;
     (async () => {
       try {
-        const skillsSnap = await getDocs(collection(db, 'skills'));
-        if (active && skillsSnap.empty) {
+        const skillsSnap = await rtdbGet(rtdbRef(rtdb, 'skills'));
+        if (active && !skillsSnap.exists()) {
           await seedInitialDatabase();
           return;
         }
-        const promptsSnap = await getDocs(collection(db, 'prompts'));
-        if (active && promptsSnap.empty) {
-          const batch = writeBatch(db);
+        const promptsSnap = await rtdbGet(rtdbRef(rtdb, 'prompts'));
+        if (active && !promptsSnap.exists()) {
+          const promptUpdates: Record<string, unknown> = {};
           for (const pr of INITIAL_PROMPTS) {
-            batch.set(doc(db, 'prompts', pr.id), pr);
+            promptUpdates[`prompts/${pr.id}`] = stripUndefinedDeep(pr);
           }
-          await batch.commit();
+          await rtdbUpdate(rtdbRef(rtdb), promptUpdates);
         }
       } catch (err) {
         console.warn('Auto-seed check skipped:', err);
@@ -429,8 +478,29 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
     };
   }, [isAdmin, user, seedInitialDatabase]);
 
-  const signInWithGoogle = useCallback(async () => {
-    await signInWithPopup(auth, googleProvider);
+  const signInWithGoogle = useCallback(async (): Promise<User> => {
+    const cred = await signInWithPopup(auth, googleProvider);
+    return cred.user;
+  }, []);
+
+  const signInWithEmail = useCallback(async (email: string, password: string): Promise<User> => {
+    const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+    return cred.user;
+  }, []);
+
+  const registerWithEmail = useCallback(
+    async (email: string, password: string, displayName?: string): Promise<User> => {
+      const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      if (displayName && displayName.trim()) {
+        await updateProfile(cred.user, { displayName: displayName.trim().slice(0, 80) });
+      }
+      return cred.user;
+    },
+    [],
+  );
+
+  const sendPasswordReset = useCallback(async (email: string): Promise<void> => {
+    await sendPasswordResetEmail(auth, email.trim());
   }, []);
 
   const signOutUser = useCallback(async () => {
@@ -447,7 +517,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
           publishedAt:
             skill.status === 'published' && !skill.publishedAt ? now : skill.publishedAt,
         };
-        await setDoc(doc(db, 'skills', payload.id), payload);
+        await rtdbSet(rtdbRef(rtdb, `skills/${payload.id}`), stripUndefinedDeep(payload));
         setSkills((prev) => {
           const exists = prev.some((s) => s.id === payload.id);
           return exists ? prev.map((s) => (s.id === payload.id ? payload : s)) : [payload, ...prev];
@@ -467,7 +537,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
   const deleteSkill = useCallback(
     async (skillId: string, title: string) => {
       try {
-        await deleteDoc(doc(db, 'skills', skillId));
+        await rtdbRemove(rtdbRef(rtdb, `skills/${skillId}`));
         setSkills((prev) => prev.filter((s) => s.id !== skillId));
         await logActivity('Deleted skill', 'skill', title);
       } catch (error) {
@@ -509,7 +579,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         if (!payload.previewImage) {
           delete payload.previewImage;
         }
-        await setDoc(doc(db, 'prompts', payload.id), payload);
+        await rtdbSet(rtdbRef(rtdb, `prompts/${payload.id}`), stripUndefinedDeep(payload));
         setPrompts((prev) => {
           const exists = prev.some((p) => p.id === payload.id);
           const next = exists
@@ -528,7 +598,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
   const deletePrompt = useCallback(
     async (promptId: string, title: string) => {
       try {
-        await deleteDoc(doc(db, 'prompts', promptId));
+        await rtdbRemove(rtdbRef(rtdb, `prompts/${promptId}`));
         setPrompts((prev) => prev.filter((p) => p.id !== promptId));
         await logActivity('Deleted sample prompt', 'prompt', title);
       } catch (error) {
@@ -541,15 +611,15 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
   const reorderPromptList = useCallback(
     async (orderedPrompts: SamplePrompt[]) => {
       try {
-        const batch = writeBatch(db);
         const now = Date.now();
+        const updates: Record<string, unknown> = {};
         const updated = orderedPrompts.map((p, idx) => {
           const clean = { ...p, displayOrder: idx + 1, updatedAt: now };
           if (!clean.previewImage) delete clean.previewImage;
-          batch.set(doc(db, 'prompts', clean.id), clean);
+          updates[`prompts/${clean.id}`] = stripUndefinedDeep(clean);
           return clean;
         });
-        await batch.commit();
+        await rtdbUpdate(rtdbRef(rtdb), updates);
         setPrompts((prev) => {
           const updatedMap = new Map(updated.map((u) => [u.id, u]));
           return prev
@@ -568,7 +638,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
     async (category: Category) => {
       try {
         const payload = { ...category, updatedAt: Date.now() };
-        await setDoc(doc(db, 'categories', payload.id), payload);
+        await rtdbSet(rtdbRef(rtdb, `categories/${payload.id}`), stripUndefinedDeep(payload));
         setCategories((prev) => {
           const exists = prev.some((c) => c.id === payload.id);
           const next = exists
@@ -587,7 +657,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
   const deleteCategory = useCallback(
     async (categoryId: string, name: string) => {
       try {
-        await deleteDoc(doc(db, 'categories', categoryId));
+        await rtdbRemove(rtdbRef(rtdb, `categories/${categoryId}`));
         setCategories((prev) => prev.filter((c) => c.id !== categoryId));
         await logActivity('Deleted category', 'category', name);
       } catch (error) {
@@ -601,7 +671,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
     async (config: HomepageConfig) => {
       try {
         const payload = { ...config, updatedAt: Date.now() };
-        await setDoc(doc(db, 'homepage', 'main'), payload);
+        await rtdbSet(rtdbRef(rtdb, 'homepage/main'), stripUndefinedDeep(payload));
         setHomepage(payload);
         await logActivity('Updated homepage layout', 'homepage', 'Homepage');
       } catch (error) {
@@ -615,7 +685,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
     async (config: SiteSettings) => {
       try {
         const payload = { ...config, updatedAt: Date.now() };
-        await setDoc(doc(db, 'siteSettings', 'main'), payload);
+        await rtdbSet(rtdbRef(rtdb, 'siteSettings/main'), stripUndefinedDeep(payload));
         setSettings(payload);
         await logActivity('Updated website settings', 'settings', config.siteName);
       } catch (error) {
@@ -629,7 +699,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
     async (page: PageRecord) => {
       try {
         const payload = { ...page, updatedAt: Date.now() };
-        await setDoc(doc(db, 'pages', payload.id), payload);
+        await rtdbSet(rtdbRef(rtdb, `pages/${payload.id}`), stripUndefinedDeep(payload));
         setPages((prev) => {
           const exists = prev.some((p) => p.id === payload.id);
           return exists ? prev.map((p) => (p.id === payload.id ? payload : p)) : [...prev, payload];
@@ -645,7 +715,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
   const deletePage = useCallback(
     async (pageId: string, title: string) => {
       try {
-        await deleteDoc(doc(db, 'pages', pageId));
+        await rtdbRemove(rtdbRef(rtdb, `pages/${pageId}`));
         setPages((prev) => prev.filter((p) => p.id !== pageId));
         await logActivity('Deleted page', 'page', title);
       } catch (error) {
@@ -664,7 +734,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
           updatedAt: now,
           publishedAt: post.status === 'published' && !post.publishedAt ? now : post.publishedAt,
         };
-        await setDoc(doc(db, 'posts', payload.id), payload);
+        await rtdbSet(rtdbRef(rtdb, `posts/${payload.id}`), stripUndefinedDeep(payload));
         setPosts((prev) => {
           const exists = prev.some((p) => p.id === payload.id);
           return exists ? prev.map((p) => (p.id === payload.id ? payload : p)) : [payload, ...prev];
@@ -680,7 +750,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
   const deletePost = useCallback(
     async (postId: string, title: string) => {
       try {
-        await deleteDoc(doc(db, 'posts', postId));
+        await rtdbRemove(rtdbRef(rtdb, `posts/${postId}`));
         setPosts((prev) => prev.filter((p) => p.id !== postId));
         await logActivity('Deleted update post', 'post', title);
       } catch (error) {
@@ -690,47 +760,28 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
     [logActivity],
   );
 
+  // Cloud Firestore ONLY: File Upload, Rename, Replace, Delete
   const uploadFile = useCallback(
     async (file: File, displayName?: string): Promise<FileRecord> => {
       const currentUser = auth.currentUser;
-      if (!currentUser) throw new Error('You must sign in as admin to upload files.');
-      const token = await currentUser.getIdToken();
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const res = await fetch('/api/files/upload', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Upload failed' }));
-        throw new Error(err.error || 'Upload failed');
+      if (!currentUser || !isVerifiedGoogleAdmin(currentUser)) {
+        throw new Error('You must sign in with the authorized Google admin account to upload files.');
       }
-      const data = await res.json();
-      const now = Date.now();
-      const record: FileRecord = {
-        id: data.id,
-        displayName: (displayName || data.displayName || file.name).slice(0, 180),
-        originalName: data.originalName,
-        mimeType: data.mimeType,
-        size: data.size,
-        category: data.category,
-        url: data.url,
-        viewUrl: data.viewUrl,
-        storagePath: data.storagePath,
-        uploadedBy: currentUser.email || '',
-        createdAt: now,
-        updatedAt: now,
-      };
+      const id = generateSafeId('file');
       try {
-        await setDoc(doc(db, 'files', record.id), record);
+        const record = await uploadFileToFirestore(
+          db,
+          file,
+          id,
+          displayName || file.name,
+          currentUser.email || BOOTSTRAP_ADMIN_EMAIL,
+        );
+        setFiles((prev) => [record, ...prev]);
+        await logActivity('Uploaded file to Firestore', 'file', record.displayName);
+        return record;
       } catch (error) {
-        handleFirestoreError(error, OperationType.WRITE, `files/${record.id}`);
+        handleFirestoreError(error, OperationType.WRITE, `files/${id}`);
       }
-      setFiles((prev) => [record, ...prev]);
-      await logActivity('Uploaded file', 'file', record.displayName);
-      return record;
     },
     [logActivity],
   );
@@ -739,7 +790,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
     async (fileId: string, displayName: string) => {
       try {
         const now = Date.now();
-        await updateDoc(doc(db, 'files', fileId), { displayName, updatedAt: now });
+        await fsUpdateDoc(fsDoc(db, 'files', fileId), { displayName, updatedAt: now });
         setFiles((prev) =>
           prev.map((f) => (f.id === fileId ? { ...f, displayName, updatedAt: now } : f)),
         );
@@ -754,49 +805,36 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
   const replaceFile = useCallback(
     async (fileRecord: FileRecord, newFile: File): Promise<FileRecord> => {
       const currentUser = auth.currentUser;
-      if (!currentUser) throw new Error('You must sign in as admin to replace files.');
-      const token = await currentUser.getIdToken();
-      const formData = new FormData();
-      formData.append('file', newFile);
-
-      const res = await fetch(`/api/files/${fileRecord.id}/replace`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Replace failed' }));
-        throw new Error(err.error || 'Replace failed');
+      if (!currentUser || !isVerifiedGoogleAdmin(currentUser)) {
+        throw new Error('You must sign in with the authorized Google admin account to replace files.');
       }
-      const data = await res.json();
-      const now = Date.now();
-      const updated: FileRecord = {
-        ...fileRecord,
-        originalName: data.originalName,
-        mimeType: data.mimeType,
-        size: data.size,
-        url: data.url,
-        viewUrl: data.viewUrl,
-        storagePath: data.storagePath,
-        updatedAt: now,
-      };
-      await setDoc(doc(db, 'files', updated.id), updated);
-      setFiles((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
+      try {
+        const updated = await replaceFileInFirestore(
+          db,
+          fileRecord,
+          newFile,
+          currentUser.email || BOOTSTRAP_ADMIN_EMAIL,
+        );
+        setFiles((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
 
-      // Sync any published/draft skills referencing this fileId so size & filename stay current
-      const affected = skills.filter((s) => s.zipFileId === updated.id);
-      for (const sk of affected) {
-        const updatedSkill = {
-          ...sk,
-          zipFileName: updated.originalName,
-          zipFileSize: updated.size,
-          zipFileUrl: updated.url,
-          updatedAt: now,
-        };
-        await setDoc(doc(db, 'skills', sk.id), updatedSkill);
+        // Sync referencing skills in Realtime Database so size & filename stay current
+        const affected = skills.filter((s) => s.zipFileId === updated.id);
+        for (const sk of affected) {
+          const updatedSkill: Skill = {
+            ...sk,
+            zipFileName: updated.originalName,
+            zipFileSize: updated.size,
+            zipFileUrl: updated.url,
+            updatedAt: updated.updatedAt,
+          };
+          await rtdbSet(rtdbRef(rtdb, `skills/${sk.id}`), stripUndefinedDeep(updatedSkill));
+        }
+
+        await logActivity('Replaced file in Firestore', 'file', updated.displayName);
+        return updated;
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, `files/${fileRecord.id}`);
       }
-      await logActivity('Replaced file binary', 'file', updated.displayName);
-      return updated;
     },
     [logActivity, skills],
   );
@@ -804,16 +842,13 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
   const deleteFileRecord = useCallback(
     async (fileRecord: FileRecord) => {
       const currentUser = auth.currentUser;
-      if (!currentUser) throw new Error('You must sign in as admin to delete files.');
-      const token = await currentUser.getIdToken();
-      await fetch(`/api/files/${fileRecord.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      if (!currentUser || !isVerifiedGoogleAdmin(currentUser)) {
+        throw new Error('You must sign in with the authorized Google admin account to delete files.');
+      }
       try {
-        await deleteDoc(doc(db, 'files', fileRecord.id));
+        await deleteFileFromFirestore(db, fileRecord.id);
         setFiles((prev) => prev.filter((f) => f.id !== fileRecord.id));
-        await logActivity('Deleted file', 'file', fileRecord.displayName);
+        await logActivity('Deleted file from Firestore', 'file', fileRecord.displayName);
       } catch (error) {
         handleFirestoreError(error, OperationType.DELETE, `files/${fileRecord.id}`);
       }
@@ -849,7 +884,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         sessionStorage.setItem('lakshya_platform_source', 'Direct');
       }
     } catch {
-      // Ignore storage failures in restricted contexts
+      // Ignore storage failures
     }
 
     return {
@@ -889,7 +924,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         sessionId = generateSafeId('sess');
       }
 
-      const ref = doc(db, 'visitorSessions', sessionId);
+      const sessionPath = `visitorSessions/${sessionId}`;
       const fullPayload: VisitorSession = {
         id: sessionId,
         deviceType: meta.deviceType,
@@ -907,22 +942,11 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
 
       try {
         if (!sessionInitializedRef.current) {
-          try {
-            await updateDoc(ref, {
-              currentPath: cleanPath,
-              pageViews,
-              lastSeenAt: Math.max(startedAt, now),
-              isActive: activeState,
-            });
-            sessionInitializedRef.current = true;
-            return;
-          } catch {
-            await setDoc(ref, fullPayload);
-            sessionInitializedRef.current = true;
-            return;
-          }
+          await rtdbSet(rtdbRef(rtdb, sessionPath), stripUndefinedDeep(fullPayload));
+          sessionInitializedRef.current = true;
+          return;
         }
-        await updateDoc(ref, {
+        await rtdbUpdate(rtdbRef(rtdb, sessionPath), {
           currentPath: cleanPath,
           pageViews,
           lastSeenAt: Math.max(startedAt, now),
@@ -1003,27 +1027,35 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         ),
       );
       try {
-        await setDoc(doc(db, 'downloads', event.id), event);
-        await updateDoc(doc(db, 'skills', skill.id), { downloadCount: increment(1) });
+        await rtdbSet(rtdbRef(rtdb, `downloads/${event.id}`), stripUndefinedDeep(event));
+        await runTransaction(
+          rtdbRef(rtdb, `skills/${skill.id}/downloadCount`),
+          (current) => (typeof current === 'number' ? current : skill.downloadCount || 0) + 1,
+        );
       } catch (err) {
-        console.warn('Download tracking sync skipped:', err);
+        console.warn('RTDB download tracking sync skipped:', err);
       }
     },
     [getVisitorMetadata],
   );
 
-  const submitDownloadWithEmail = useCallback(
-    async (skill: Skill, rawEmail: string) => {
-      const cleanEmail = rawEmail.trim().slice(0, 200);
-      if (!isValidVisitorEmail(cleanEmail)) {
-        throw new Error('Please enter a valid email address.');
+  const recordAuthenticatedDownload = useCallback(
+    async (skill: Skill, authenticatedUser?: User | null) => {
+      const activeUser = authenticatedUser || auth.currentUser;
+      if (!activeUser || !activeUser.email) {
+        throw new Error('Please sign in with Google or Email & Password to download.');
       }
+
       const now = Date.now();
       const dateKey = new Date(now).toISOString().slice(0, 10);
       const meta = getVisitorMetadata();
+      const providerId = activeUser.providerData[0]?.providerId || 'password';
+
       const lead: DownloadLead = {
         id: generateSafeId('lead'),
-        email: cleanEmail,
+        email: activeUser.email.slice(0, 200),
+        uid: activeUser.uid.slice(0, 128),
+        authProvider: providerId.slice(0, 40),
         skillId: skill.id,
         skillTitle: skill.title.slice(0, 140),
         skillSlug: skill.slug.slice(0, 120),
@@ -1034,13 +1066,14 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         dateKey,
         createdAt: now,
       };
+
       try {
-        await setDoc(doc(db, 'downloadLeads', lead.id), lead);
+        await rtdbSet(rtdbRef(rtdb, `downloadLeads/${lead.id}`), stripUndefinedDeep(lead));
         if (isAdmin) {
           setDownloadLeads((prev) => [lead, ...prev]);
         }
       } catch (err) {
-        console.warn('Download lead sync notice:', err);
+        console.warn('RTDB download lead sync notice:', err);
       }
       await trackSkillDownload(skill);
     },
@@ -1069,6 +1102,9 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         isSeeding,
         dbConnected,
         signInWithGoogle,
+        signInWithEmail,
+        registerWithEmail,
+        sendPasswordReset,
         signOutUser,
         seedInitialDatabase,
         saveSkill,
@@ -1090,7 +1126,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         replaceFile,
         deleteFileRecord,
         trackSkillDownload,
-        submitDownloadWithEmail,
+        recordAuthenticatedDownload,
         trackPageVisit,
       }}
     >

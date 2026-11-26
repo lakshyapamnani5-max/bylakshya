@@ -1,15 +1,37 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import { getAnalytics, isSupported as isAnalyticsSupported } from 'firebase/analytics';
+import { getAuth, GoogleAuthProvider, type User } from 'firebase/auth';
+import { getDatabase, onValue, ref } from 'firebase/database';
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const rtdb = getDatabase(app);
+export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
+if (typeof window !== 'undefined') {
+  void isAnalyticsSupported()
+    .then((supported) => {
+      if (supported) {
+        getAnalytics(app);
+      }
+    })
+    .catch(() => {
+      // Ignore analytics initialization errors in restricted/headless contexts
+    });
+}
+
 export const BOOTSTRAP_ADMIN_EMAIL = 'lakshaypamnani2@gmail.com';
+
+export function isVerifiedGoogleAdmin(user: User | null | undefined): boolean {
+  if (!user || !user.emailVerified) return false;
+  const email = (user.email || '').toLowerCase();
+  if (email !== BOOTSTRAP_ADMIN_EMAIL) return false;
+  return user.providerData.some((p) => p.providerId === 'google.com');
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -59,19 +81,47 @@ export function handleFirestoreError(
     operationType,
     path,
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  console.error('Firebase Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
 
 export async function testConnection(): Promise<boolean> {
+  const rtdbOk = await new Promise<boolean>((resolve) => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(true);
+      }
+    }, 2500);
+    const unsub = onValue(
+      ref(rtdb, '.info/connected'),
+      (snap) => {
+        if (!settled && snap.val() === true) {
+          settled = true;
+          window.clearTimeout(timer);
+          unsub();
+          resolve(true);
+        }
+      },
+      () => {
+        if (!settled) {
+          settled = true;
+          window.clearTimeout(timer);
+          resolve(false);
+        }
+      },
+    );
+  });
+
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
-    return true;
+    return rtdbOk;
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Firebase client is offline. Please verify firebase-applet-config.json.');
+      console.error('Firebase client is offline. Please verify Firebase configuration.');
       return false;
     }
-    return true;
+    return rtdbOk;
   }
 }

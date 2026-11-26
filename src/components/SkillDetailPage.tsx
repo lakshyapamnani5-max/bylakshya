@@ -6,14 +6,21 @@ import {
   ChevronDown,
   Download,
   ExternalLink,
+  Eye,
+  EyeOff,
   FileArchive,
   FileText,
   Film,
   Github,
+  Lock,
+  LogOut,
   Mail,
   X,
 } from 'lucide-react';
+import type { User } from 'firebase/auth';
 import { useCms } from '../context/CmsContext';
+import type { Skill } from '../types/cms';
+import { db } from '../firebase';
 import { renderSafeMarkdown } from '../utils/markdown';
 import {
   filterAndSortSkills,
@@ -21,9 +28,11 @@ import {
   getPublishedPromptsForSkill,
   isSafeUrl,
 } from '../utils/skillsLogic';
-import { isValidVisitorEmail } from '../utils/analyticsLogic';
+import { downloadFirestoreFile, extractFirestoreFileId } from '../utils/firestoreFiles';
+import { formatFirebaseAuthError } from '../utils/rtdbHelpers';
 import { updatePageSeo } from '../utils/seo';
 import { SamplePromptsAccordion } from './SamplePromptsAccordion';
+import { ResolvedImg, ResolvedVideo } from './ResolvedMedia';
 import { NotFoundPage } from './not-found';
 
 interface SkillDetailPageProps {
@@ -32,13 +41,30 @@ interface SkillDetailPageProps {
 }
 
 export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
-  const { skills, prompts, categories, settings, submitDownloadWithEmail } = useCms();
+  const {
+    skills,
+    prompts,
+    categories,
+    settings,
+    user,
+    signInWithGoogle,
+    signInWithEmail,
+    registerWithEmail,
+    sendPasswordReset,
+    signOutUser,
+    recordAuthenticatedDownload,
+  } = useCms();
+
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [downloadedNotice, setDownloadedNotice] = useState(false);
-  const [emailModalOpen, setEmailModalOpen] = useState(false);
-  const [leadEmail, setLeadEmail] = useState('');
-  const [leadError, setLeadError] = useState('');
-  const [submittingLead, setSubmittingLead] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [authNotice, setAuthNotice] = useState('');
+  const [submittingAuth, setSubmittingAuth] = useState(false);
   const [downloadUnlocked, setDownloadUnlocked] = useState(false);
   const emailInputRef = useRef<HTMLInputElement>(null);
   const [installOpen, setInstallOpen] = useState(false);
@@ -64,7 +90,9 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
     if (!skill) return [];
     return filterAndSortSkills(skills, { sort: 'popular' })
       .filter((s) => s.id !== skill.id)
-      .sort((a, b) => (a.categoryId === skill.categoryId ? -1 : b.categoryId === skill.categoryId ? 1 : 0))
+      .sort((a, b) =>
+        a.categoryId === skill.categoryId ? -1 : b.categoryId === skill.categoryId ? 1 : 0,
+      )
       .slice(0, 3);
   }, [skills, skill]);
 
@@ -82,7 +110,7 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setLightboxImage(null);
-        setEmailModalOpen(false);
+        setAuthModalOpen(false);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -90,51 +118,141 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
   }, []);
 
   useEffect(() => {
-    if (emailModalOpen) {
+    if (authModalOpen && !user) {
       setTimeout(() => emailInputRef.current?.focus(), 40);
     }
-  }, [emailModalOpen]);
+  }, [authModalOpen, user]);
 
   if (!skill) {
     return <NotFoundPage onNavigate={onNavigate} />;
   }
 
-  const triggerZipDownload = () => {
+  const triggerZipDownload = async () => {
     if (!skill.zipFileUrl) return;
-    const anchor = document.createElement('a');
-    anchor.href = skill.zipFileUrl;
-    anchor.download = skill.zipFileName || `${skill.slug}.zip`;
-    anchor.style.display = 'none';
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
+    const firestoreFileId = extractFirestoreFileId(skill.zipFileUrl);
+    if (firestoreFileId) {
+      await downloadFirestoreFile(
+        db,
+        firestoreFileId,
+        skill.zipFileName || `${skill.slug}.zip`,
+      );
+    } else {
+      const anchor = document.createElement('a');
+      anchor.href = skill.zipFileUrl;
+      anchor.download = skill.zipFileName || `${skill.slug}.zip`;
+      anchor.style.display = 'none';
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+    }
     setDownloadedNotice(true);
     setTimeout(() => setDownloadedNotice(false), 3500);
   };
 
-  const handleOpenDownloadModal = () => {
-    setLeadError('');
-    setDownloadUnlocked(false);
-    setEmailModalOpen(true);
+  const completeAuthenticatedDownload = async (authenticatedUser: User) => {
+    await recordAuthenticatedDownload(skill, authenticatedUser);
+    await triggerZipDownload();
+    setDownloadUnlocked(true);
   };
 
-  const handleLeadSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLeadError('');
-    if (!isValidVisitorEmail(leadEmail)) {
-      setLeadError('Please enter a valid email address (for example, name@example.com).');
+  const handleDownloadClick = async () => {
+    setAuthError('');
+    setAuthNotice('');
+    if (user && user.email) {
+      setSubmittingAuth(true);
+      try {
+        await completeAuthenticatedDownload(user);
+        setAuthModalOpen(true);
+      } catch (err) {
+        setAuthError(
+          err instanceof Error ? err.message : 'Unable to start download right now.',
+        );
+        setDownloadUnlocked(false);
+        setAuthModalOpen(true);
+      } finally {
+        setSubmittingAuth(false);
+      }
       return;
     }
-    setSubmittingLead(true);
+
+    setDownloadUnlocked(false);
+    setAuthModalOpen(true);
+  };
+
+  const handleGoogleDownloadAuth = async () => {
+    setAuthError('');
+    setAuthNotice('');
+    setSubmittingAuth(true);
     try {
-      await submitDownloadWithEmail(skill, leadEmail);
-      setDownloadUnlocked(true);
-      triggerZipDownload();
+      const signedInUser = await signInWithGoogle();
+      await completeAuthenticatedDownload(signedInUser);
     } catch (err) {
-      setLeadError(err instanceof Error ? err.message : 'Unable to start download right now.');
+      setAuthError(formatFirebaseAuthError(err));
     } finally {
-      setSubmittingLead(false);
+      setSubmittingAuth(false);
     }
+  };
+
+  const handleEmailAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthNotice('');
+
+    if (!authEmail.trim()) {
+      setAuthError('Please enter your email address.');
+      return;
+    }
+    if (!authPassword || authPassword.length < 6) {
+      setAuthError('Password must be at least 6 characters.');
+      return;
+    }
+
+    setSubmittingAuth(true);
+    try {
+      const signedInUser =
+        authMode === 'signin'
+          ? await signInWithEmail(authEmail, authPassword)
+          : await registerWithEmail(authEmail, authPassword);
+      await completeAuthenticatedDownload(signedInUser);
+    } catch (err) {
+      setAuthError(formatFirebaseAuthError(err));
+    } finally {
+      setSubmittingAuth(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setAuthError('');
+    setAuthNotice('');
+    if (!authEmail.trim()) {
+      setAuthError('Enter your email address above first so we can send a reset link.');
+      return;
+    }
+    setSubmittingAuth(true);
+    try {
+      await sendPasswordReset(authEmail);
+      setAuthNotice(`Password reset email sent to ${authEmail.trim()}.`);
+    } catch (err) {
+      setAuthError(formatFirebaseAuthError(err));
+    } finally {
+      setSubmittingAuth(false);
+    }
+  };
+
+  const handleAttachmentDownload = async (
+    att: Skill['attachments'][number],
+    e: React.MouseEvent,
+  ) => {
+    const fsId = extractFirestoreFileId(att.url);
+    if (!fsId) return;
+    e.preventDefault();
+    if (!user) {
+      setAuthError('Please sign in with Google or Email & Password to download attachments.');
+      setDownloadUnlocked(false);
+      setAuthModalOpen(true);
+      return;
+    }
+    await downloadFirestoreFile(db, fsId, att.label);
   };
 
   const formattedUpdatedDate = new Date(skill.updatedAt).toLocaleDateString('en-US', {
@@ -166,7 +284,7 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
       <section aria-label="Skill cover">
         <div className="aspect-video w-full rounded-3xl overflow-hidden bg-white border border-[#18264F]/10 shadow-sm">
           {skill.coverImage ? (
-            <img
+            <ResolvedImg
               src={skill.coverImage}
               alt={skill.title}
               referrerPolicy="no-referrer"
@@ -366,8 +484,9 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
             <button
               type="button"
               data-testid="download-skill-btn"
-              onClick={handleOpenDownloadModal}
-              className="inline-flex items-center gap-2.5 px-7 py-4 rounded-2xl bg-[#304A96] text-white text-sm font-semibold hover:bg-[#18264F] transition-colors shadow-xs"
+              disabled={submittingAuth}
+              onClick={() => void handleDownloadClick()}
+              className="inline-flex items-center gap-2.5 px-7 py-4 rounded-2xl bg-[#304A96] text-white text-sm font-semibold hover:bg-[#18264F] transition-colors shadow-xs disabled:opacity-60"
             >
               {downloadedNotice ? (
                 <Check className="w-4 h-4" />
@@ -417,33 +536,45 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
           )}
         </div>
 
-        {/* Package & Supporting Attachments */}
-        {(skill.zipFileUrl || skill.attachments.length > 0) && (
-          <div className="flex flex-wrap items-center gap-2 text-xs text-[#18264F]/70">
-            {skill.zipFileUrl && (
-              <span className="inline-flex items-center gap-1.5 bg-white border border-[#18264F]/8 px-3 py-1.5 rounded-xl">
-                <FileArchive className="w-3.5 h-3.5 text-[#304A96]" />
-                <span className="font-mono">{skill.zipFileName || `${skill.slug}.zip`}</span>
-              </span>
-            )}
-            {skill.attachments.map((att) => (
-              <a
-                key={att.id}
-                href={isSafeUrl(att.url) ? att.url : '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 bg-white border border-[#18264F]/8 px-3 py-1.5 rounded-xl hover:bg-[#EAEAF6] transition-colors"
+        {/* Signed-in downloader session info & file badge */}
+        <div className="flex flex-wrap items-center gap-2.5 text-xs text-[#18264F]/70">
+          {skill.zipFileUrl && (
+            <span className="inline-flex items-center gap-1.5 bg-white border border-[#18264F]/8 px-3 py-1.5 rounded-xl">
+              <FileArchive className="w-3.5 h-3.5 text-[#304A96]" />
+              <span className="font-mono">{skill.zipFileName || `${skill.slug}.zip`}</span>
+            </span>
+          )}
+          {skill.attachments.map((att) => (
+            <a
+              key={att.id}
+              href={isSafeUrl(att.url) && !extractFirestoreFileId(att.url) ? att.url : '#'}
+              target={extractFirestoreFileId(att.url) ? undefined : '_blank'}
+              rel={extractFirestoreFileId(att.url) ? undefined : 'noopener noreferrer'}
+              onClick={(e) => void handleAttachmentDownload(att, e)}
+              className="inline-flex items-center gap-1.5 bg-white border border-[#18264F]/8 px-3 py-1.5 rounded-xl hover:bg-[#EAEAF6] transition-colors"
+            >
+              <FileText className="w-3.5 h-3.5 text-[#304A96]" />
+              <span>{att.label}</span>
+              <span className="text-[#18264F]/50 tabular-nums">({formatFileSize(att.size)})</span>
+            </a>
+          ))}
+          {user && (
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/80 border border-[#18264F]/8 text-[#18264F]/75">
+              <span>Signed in as <strong className="font-medium text-[#18264F]">{user.email}</strong></span>
+              <button
+                type="button"
+                onClick={() => void signOutUser()}
+                className="inline-flex items-center gap-1 text-[#304A96] font-semibold hover:underline"
               >
-                <FileText className="w-3.5 h-3.5 text-[#304A96]" />
-                <span>{att.label}</span>
-                <span className="text-[#18264F]/50 tabular-nums">({formatFileSize(att.size)})</span>
-              </a>
-            ))}
-          </div>
-        )}
+                <LogOut className="w-3 h-3" />
+                <span>Sign out</span>
+              </button>
+            </span>
+          )}
+        </div>
       </section>
 
-      {/* 6 & 7. Sample Prompts Heading & Ten Collapsible Prompt Cards */}
+      {/* 6 & 7. Sample Prompts Heading & Collapsible Prompt Cards */}
       <SamplePromptsAccordion prompts={skillPrompts} />
 
       {/* 8. Related Sample Videos & Visual Previews */}
@@ -467,7 +598,7 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
                 >
                   <div className="aspect-video w-full bg-[#EAEAF6] relative overflow-hidden">
                     {sv.videoUrl && isSafeUrl(sv.videoUrl) ? (
-                      <video
+                      <ResolvedVideo
                         src={sv.videoUrl}
                         poster={sv.thumbnailUrl}
                         controls
@@ -481,7 +612,7 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
                         className="group w-full h-full block text-left"
                         aria-label={`Preview ${sv.title}`}
                       >
-                        <img
+                        <ResolvedImg
                           src={sv.thumbnailUrl}
                           alt={sv.title}
                           loading="lazy"
@@ -525,7 +656,7 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
                     onClick={() => setLightboxImage(imgUrl)}
                     className="group aspect-video rounded-2xl overflow-hidden border border-[#18264F]/10 bg-white text-left"
                   >
-                    <img
+                    <ResolvedImg
                       src={imgUrl}
                       alt={`${skill.title} preview ${idx + 1}`}
                       loading="lazy"
@@ -577,14 +708,14 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
         </section>
       )}
 
-      {/* Email Gate Modal Before Downloading */}
-      {emailModalOpen && (
+      {/* Sign-In Gate Modal Before Downloading (Google OR Email & Password) */}
+      {authModalOpen && (
         <div
           role="dialog"
           aria-modal="true"
-          aria-labelledby="download-email-modal-title"
+          aria-labelledby="download-auth-modal-title"
           className="fixed inset-0 z-50 bg-[#18264F]/65 flex items-center justify-center p-4 sm:p-6"
-          onClick={() => setEmailModalOpen(false)}
+          onClick={() => setAuthModalOpen(false)}
         >
           <div
             className="bg-white rounded-3xl border border-[#18264F]/10 shadow-xl max-w-md w-full p-6 sm:p-8 space-y-5 relative"
@@ -592,8 +723,8 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
           >
             <button
               type="button"
-              aria-label="Close download prompt"
-              onClick={() => setEmailModalOpen(false)}
+              aria-label="Close download modal"
+              onClick={() => setAuthModalOpen(false)}
               className="absolute top-5 right-5 w-9 h-9 rounded-xl bg-[#F5F5FA] text-[#18264F] flex items-center justify-center hover:bg-[#EAEAF6]"
             >
               <X className="w-4 h-4" />
@@ -603,58 +734,195 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
               <>
                 <div className="space-y-2 pr-8">
                   <div className="w-10 h-10 rounded-2xl bg-[#EAEAF6] text-[#304A96] flex items-center justify-center">
-                    <Mail className="w-5 h-5" />
+                    <Lock className="w-5 h-5" />
                   </div>
                   <h2
-                    id="download-email-modal-title"
+                    id="download-auth-modal-title"
                     className="font-display text-2xl font-semibold text-[#18264F]"
                   >
-                    Enter your email to download
+                    Sign in to download
                   </h2>
                   <p className="text-xs sm:text-sm text-[#18264F]/70 leading-relaxed">
-                    Get instant access to <span className="font-semibold text-[#18264F]">{skill.title}</span> ({formatFileSize(skill.zipFileSize)}) and future skill updates.
+                    Sign in with Google or email &amp; password to download{' '}
+                    <span className="font-semibold text-[#18264F]">{skill.title}</span> (
+                    {formatFileSize(skill.zipFileSize)}).
                   </p>
                 </div>
 
-                <form onSubmit={(e) => void handleLeadSubmit(e)} noValidate className="space-y-4">
+                {/* Continue with Google */}
+                <button
+                  type="button"
+                  data-testid="download-google-signin-btn"
+                  disabled={submittingAuth}
+                  onClick={() => void handleGoogleDownloadAuth()}
+                  className="w-full inline-flex items-center justify-center gap-2.5 px-5 py-3.5 rounded-2xl bg-white border border-[#18264F]/15 text-sm font-semibold text-[#18264F] hover:bg-[#F5F5FA] transition-colors disabled:opacity-60"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4 shrink-0">
+                    <path
+                      fill="#4285F4"
+                      d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 24c3.3 0 6.08-1.09 8.11-2.96l-3.88-3.05c-1.08.72-2.46 1.15-4.23 1.15-3.25 0-6-2.19-6.98-5.14H1.01v3.14C3.03 21.15 7.21 24 12 24Z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.02 14a7.17 7.17 0 0 1 0-4V6.86H1.01a11.98 11.98 0 0 0 0 10.28L5.02 14Z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 4.75c1.8 0 3.41.62 4.68 1.83l3.51-3.51C18.08 1.09 15.3 0 12 0 7.21 0 3.03 2.85 1.01 6.86L5.02 10C6 7.05 8.75 4.75 12 4.75Z"
+                    />
+                  </svg>
+                  <span>Continue with Google</span>
+                </button>
+
+                <div className="relative flex items-center py-0.5">
+                  <div className="flex-1 border-t border-[#18264F]/10" />
+                  <span className="px-3 text-[11px] font-medium text-[#18264F]/50 uppercase tracking-wider">
+                    or with email
+                  </span>
+                  <div className="flex-1 border-t border-[#18264F]/10" />
+                </div>
+
+                {/* Sign In / Create Account Toggle */}
+                <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-[#F5F5FA] border border-[#18264F]/8">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('signin');
+                      setAuthError('');
+                      setAuthNotice('');
+                    }}
+                    className={`py-2 rounded-lg text-xs font-semibold transition-colors ${
+                      authMode === 'signin'
+                        ? 'bg-white text-[#18264F] shadow-xs'
+                        : 'text-[#18264F]/65 hover:text-[#18264F]'
+                    }`}
+                  >
+                    Sign In
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('signup');
+                      setAuthError('');
+                      setAuthNotice('');
+                    }}
+                    className={`py-2 rounded-lg text-xs font-semibold transition-colors ${
+                      authMode === 'signup'
+                        ? 'bg-white text-[#18264F] shadow-xs'
+                        : 'text-[#18264F]/65 hover:text-[#18264F]'
+                    }`}
+                  >
+                    Create Account
+                  </button>
+                </div>
+
+                <form onSubmit={(e) => void handleEmailAuthSubmit(e)} noValidate className="space-y-3.5">
                   <div className="space-y-1.5">
                     <label
-                      htmlFor="download-lead-email"
+                      htmlFor="download-auth-email"
                       className="block text-xs font-semibold text-[#18264F]"
                     >
                       Email address
                     </label>
-                    <input
-                      ref={emailInputRef}
-                      id="download-lead-email"
-                      type="email"
-                      required
-                      value={leadEmail}
-                      onChange={(e) => {
-                        setLeadEmail(e.target.value);
-                        if (leadError) setLeadError('');
-                      }}
-                      placeholder="you@example.com"
-                      className="w-full px-4 py-3 rounded-xl bg-[#F5F5FA] border border-[#18264F]/15 text-sm text-[#18264F] placeholder:text-[#18264F]/40 focus:outline-none focus:ring-2 focus:ring-[#304A96]"
-                    />
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-[#18264F]/40 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        ref={emailInputRef}
+                        id="download-auth-email"
+                        type="email"
+                        required
+                        autoComplete="email"
+                        value={authEmail}
+                        onChange={(e) => {
+                          setAuthEmail(e.target.value);
+                          if (authError) setAuthError('');
+                        }}
+                        placeholder="you@example.com"
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#F5F5FA] border border-[#18264F]/15 text-sm text-[#18264F] placeholder:text-[#18264F]/40 focus:outline-none focus:ring-2 focus:ring-[#304A96]"
+                      />
+                    </div>
                   </div>
 
-                  {leadError && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label
+                        htmlFor="download-auth-password"
+                        className="block text-xs font-semibold text-[#18264F]"
+                      >
+                        Password
+                      </label>
+                      {authMode === 'signin' && (
+                        <button
+                          type="button"
+                          onClick={() => void handleForgotPassword()}
+                          className="text-[11px] font-semibold text-[#304A96] hover:underline"
+                        >
+                          Forgot password?
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        id="download-auth-password"
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        minLength={6}
+                        autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'}
+                        value={authPassword}
+                        onChange={(e) => {
+                          setAuthPassword(e.target.value);
+                          if (authError) setAuthError('');
+                        }}
+                        placeholder={authMode === 'signup' ? 'Create a password (min 6 chars)' : 'Your password'}
+                        className="w-full px-4 pr-11 py-2.5 rounded-xl bg-[#F5F5FA] border border-[#18264F]/15 text-sm text-[#18264F] placeholder:text-[#18264F]/40 focus:outline-none focus:ring-2 focus:ring-[#304A96]"
+                      />
+                      <button
+                        type="button"
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-[#18264F]/50 hover:text-[#18264F]"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {authError && (
                     <div
                       role="alert"
                       className="bg-red-50 border border-red-200 rounded-xl px-3.5 py-2.5 text-xs text-red-700 font-medium"
                     >
-                      {leadError}
+                      {authError}
+                    </div>
+                  )}
+
+                  {authNotice && (
+                    <div
+                      role="status"
+                      className="bg-emerald-50 border border-emerald-200 rounded-xl px-3.5 py-2.5 text-xs text-emerald-800 font-medium"
+                    >
+                      {authNotice}
                     </div>
                   )}
 
                   <button
                     type="submit"
-                    disabled={submittingLead}
+                    data-testid="download-email-submit-btn"
+                    disabled={submittingAuth}
                     className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl bg-[#304A96] text-white text-sm font-semibold hover:bg-[#18264F] transition-colors disabled:opacity-60"
                   >
                     <Download className="w-4 h-4" />
-                    <span>{submittingLead ? 'Preparing download...' : 'Continue to Download'}</span>
+                    <span>
+                      {submittingAuth
+                        ? 'Signing in...'
+                        : authMode === 'signin'
+                          ? 'Sign In & Download'
+                          : 'Create Account & Download'}
+                    </span>
                   </button>
                 </form>
               </>
@@ -665,7 +933,7 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
                 </div>
                 <div className="space-y-1.5">
                   <h2
-                    id="download-email-modal-title"
+                    id="download-auth-modal-title"
                     className="font-display text-2xl font-semibold text-[#18264F]"
                   >
                     Download started!
@@ -676,17 +944,17 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
                 </div>
 
                 <div className="space-y-2.5 pt-1">
-                  <a
-                    href={skill.zipFileUrl}
-                    download={skill.zipFileName || `${skill.slug}.zip`}
+                  <button
+                    type="button"
+                    onClick={() => void triggerZipDownload()}
                     className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-[#304A96] text-white text-xs font-semibold hover:bg-[#18264F]"
                   >
                     <Download className="w-4 h-4" />
-                    <span>Click here if download didn&apos;t start</span>
-                  </a>
+                    <span>Download again if it didn&apos;t start</span>
+                  </button>
                   <button
                     type="button"
-                    onClick={() => setEmailModalOpen(false)}
+                    onClick={() => setAuthModalOpen(false)}
                     className="w-full py-2.5 rounded-xl bg-[#F5F5FA] text-[#18264F] text-xs font-semibold hover:bg-[#EAEAF6]"
                   >
                     Done
@@ -715,7 +983,7 @@ export function SkillDetailPage({ slug, onNavigate }: SkillDetailPageProps) {
           >
             <X className="w-5 h-5" />
           </button>
-          <img
+          <ResolvedImg
             src={lightboxImage}
             alt="Expanded skill preview"
             referrerPolicy="no-referrer"

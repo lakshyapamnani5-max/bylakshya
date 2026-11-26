@@ -52,6 +52,7 @@ export function isSafeUrl(url: string): boolean {
   if (!trimmed) return true;
   if (trimmed.startsWith('/')) return !trimmed.startsWith('//');
   if (trimmed.startsWith('#')) return true;
+  if (/^firestore-file:\/\/[a-zA-Z0-9_-]{1,128}$/.test(trimmed)) return true;
   try {
     const parsed = new URL(trimmed);
     return parsed.protocol === 'https:' || parsed.protocol === 'http:' || parsed.protocol === 'mailto:';

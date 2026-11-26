@@ -1,147 +1,22 @@
 {
+  "architecture": {
+    "realtimeDatabase": {
+      "databaseURL": "https://bylakshya-default-rtdb.firebaseio.com",
+      "description": "Stores all structured text data, CMS configuration, skills, prompts, pages, posts, analytics, live visitor sessions, and authenticated download leads."
+    },
+    "cloudFirestore": {
+      "projectId": "bylakshya",
+      "description": "Dedicated strictly to storing uploaded binary files (file metadata + base64 chunks under 1 MiB per document)."
+    },
+    "authentication": {
+      "admin": "Google Sign-In restricted to verified email lakshaypamnani2@gmail.com",
+      "downloaders": "Google Sign-In or Email & Password authentication required before downloading skill bundles"
+    }
+  },
   "entities": {
-    "AdminUser": {
-      "title": "AdminUser",
-      "description": "Authorized administrator allowlist record keyed by Firebase Auth UID.",
-      "type": "object",
-      "properties": {
-        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "email": { "type": "string", "format": "email", "maxLength": 200 },
-        "role": { "type": "string", "enum": ["admin"] },
-        "addedAt": { "type": "number" }
-      },
-      "required": ["uid", "email", "role", "addedAt"]
-    },
-    "SiteSettings": {
-      "title": "SiteSettings",
-      "description": "Global website branding, SEO defaults, colors, and announcement settings.",
-      "type": "object",
-      "properties": {
-        "siteName": { "type": "string", "minLength": 1, "maxLength": 80 },
-        "logoText": { "type": "string", "minLength": 1, "maxLength": 40 },
-        "faviconUrl": { "type": "string", "maxLength": 500 },
-        "contactEmail": { "type": "string", "maxLength": 200 },
-        "primaryColor": { "type": "string", "maxLength": 20 },
-        "accentColor": { "type": "string", "maxLength": 20 },
-        "announcementEnabled": { "type": "boolean" },
-        "announcementText": { "type": "string", "maxLength": 180 },
-        "announcementLink": { "type": "string", "maxLength": 500 },
-        "defaultSeoTitle": { "type": "string", "maxLength": 120 },
-        "defaultSeoDescription": { "type": "string", "maxLength": 300 },
-        "analyticsId": { "type": "string", "maxLength": 80 },
-        "socialLinks": { "type": "array" },
-        "updatedAt": { "type": "number" }
-      },
-      "required": ["siteName", "logoText", "contactEmail", "updatedAt"]
-    },
-    "HomepageConfig": {
-      "title": "HomepageConfig",
-      "description": "CMS-controlled homepage hero, featured skills, More From Me links, and footer text.",
-      "type": "object",
-      "properties": {
-        "heroHeading": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "heroSubheading": { "type": "string", "minLength": 1, "maxLength": 180 },
-        "heroDescription": { "type": "string", "minLength": 1, "maxLength": 400 },
-        "avatarUrl": { "type": "string", "maxLength": 500 },
-        "primaryCtaText": { "type": "string", "maxLength": 60 },
-        "primaryCtaLink": { "type": "string", "maxLength": 200 },
-        "secondaryCtaText": { "type": "string", "maxLength": 60 },
-        "secondaryCtaLink": { "type": "string", "maxLength": 200 },
-        "featuredSkillIds": { "type": "array" },
-        "moreFromMeLinks": { "type": "array" },
-        "aboutBlurb": { "type": "string", "maxLength": 1000 },
-        "footerDescription": { "type": "string", "maxLength": 300 },
-        "updatedAt": { "type": "number" }
-      },
-      "required": ["heroHeading", "heroSubheading", "heroDescription", "updatedAt"]
-    },
-    "Category": {
-      "title": "Category",
-      "description": "Skill library category with display order and description.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "name": { "type": "string", "minLength": 1, "maxLength": 60 },
-        "slug": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[a-z0-9\\-]+$" },
-        "description": { "type": "string", "maxLength": 300 },
-        "icon": { "type": "string", "maxLength": 40 },
-        "order": { "type": "number" },
-        "createdAt": { "type": "number" },
-        "updatedAt": { "type": "number" }
-      },
-      "required": ["id", "name", "slug", "order", "createdAt", "updatedAt"]
-    },
-    "Skill": {
-      "title": "Skill",
-      "description": "Downloadable AI skill or workflow record.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "slug": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[a-z0-9\\-]+$" },
-        "shortDescription": { "type": "string", "minLength": 1, "maxLength": 400 },
-        "content": { "type": "string", "maxLength": 30000 },
-        "categoryId": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "tags": { "type": "array" },
-        "author": { "type": "string", "maxLength": 80 },
-        "version": { "type": "string", "maxLength": 30 },
-        "coverImage": { "type": "string", "maxLength": 500 },
-        "gallery": { "type": "array" },
-        "features": { "type": "array" },
-        "useCases": { "type": "array" },
-        "platforms": { "type": "array" },
-        "requirements": { "type": "array" },
-        "installation": { "type": "string", "maxLength": 20000 },
-        "usageGuide": { "type": "string", "maxLength": 20000 },
-        "changelog": { "type": "string", "maxLength": 15000 },
-        "zipFileId": { "type": "string", "maxLength": 128 },
-        "zipFileName": { "type": "string", "maxLength": 200 },
-        "zipFileUrl": { "type": "string", "maxLength": 500 },
-        "zipFileSize": { "type": "number" },
-        "attachments": { "type": "array" },
-        "githubUrl": { "type": "string", "maxLength": 500 },
-        "docsUrl": { "type": "string", "maxLength": 500 },
-        "pricingStatus": { "type": "string", "enum": ["free", "premium"] },
-        "purchaseUrl": { "type": "string", "maxLength": 500 },
-        "featured": { "type": "boolean" },
-        "isNew": { "type": "boolean" },
-        "status": { "type": "string", "enum": ["draft", "published", "scheduled"] },
-        "scheduledAt": { "type": "number" },
-        "downloadCount": { "type": "number" },
-        "seoTitle": { "type": "string", "maxLength": 120 },
-        "seoDescription": { "type": "string", "maxLength": 300 },
-        "ogImage": { "type": "string", "maxLength": 500 },
-        "sampleVideos": { "type": "array" },
-        "createdAt": { "type": "number" },
-        "updatedAt": { "type": "number" },
-        "publishedAt": { "type": "number" }
-      },
-      "required": ["id", "title", "slug", "shortDescription", "categoryId", "version", "pricingStatus", "featured", "status", "downloadCount", "createdAt", "updatedAt"]
-    },
-    "SamplePrompt": {
-      "title": "SamplePrompt",
-      "description": "Collapsible sample prompt linked to a skill.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "skillId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "title": { "type": "string", "minLength": 1, "maxLength": 140 },
-        "slug": { "type": "string", "minLength": 1, "maxLength": 140, "pattern": "^[a-z0-9\\-]+$" },
-        "description": { "type": "string", "maxLength": 500 },
-        "content": { "type": "string", "minLength": 1, "maxLength": 30000 },
-        "difficulty": { "type": "string", "enum": ["Beginner", "Intermediate", "Advanced"] },
-        "displayOrder": { "type": "number" },
-        "featured": { "type": "boolean" },
-        "previewImage": { "type": "string", "maxLength": 500 },
-        "status": { "type": "string", "enum": ["draft", "published"] },
-        "createdAt": { "type": "number" },
-        "updatedAt": { "type": "number" }
-      },
-      "required": ["id", "skillId", "title", "slug", "description", "content", "difficulty", "displayOrder", "featured", "status", "createdAt", "updatedAt"]
-    },
     "FileRecord": {
       "title": "FileRecord",
-      "description": "Uploaded file metadata pointing to stored asset.",
+      "description": "Uploaded file metadata stored in Cloud Firestore (/files/{fileId}).",
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -153,218 +28,33 @@
         "url": { "type": "string", "maxLength": 500 },
         "viewUrl": { "type": "string", "maxLength": 500 },
         "storagePath": { "type": "string", "maxLength": 500 },
+        "storageType": { "type": "string", "enum": ["firestore", "url"] },
+        "chunkCount": { "type": "number" },
         "uploadedBy": { "type": "string", "maxLength": 128 },
         "createdAt": { "type": "number" },
         "updatedAt": { "type": "number" }
       },
       "required": ["id", "displayName", "originalName", "mimeType", "size", "category", "url", "createdAt", "updatedAt"]
     },
-    "PageRecord": {
-      "title": "PageRecord",
-      "description": "Static CMS page such as About, Contact, Privacy Policy, or Terms.",
+    "FileChunk": {
+      "title": "FileChunk",
+      "description": "Chunked base64 payload for a Firestore-stored file (/files/{fileId}/chunks/{chunkId}).",
       "type": "object",
       "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "slug": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[a-z0-9\\-]+$" },
-        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "subtitle": { "type": "string", "maxLength": 240 },
-        "content": { "type": "string", "maxLength": 40000 },
-        "status": { "type": "string", "enum": ["draft", "published"] },
-        "seoTitle": { "type": "string", "maxLength": 120 },
-        "seoDescription": { "type": "string", "maxLength": 300 },
-        "showInNav": { "type": "boolean" },
-        "showInFooter": { "type": "boolean" },
-        "createdAt": { "type": "number" },
-        "updatedAt": { "type": "number" }
+        "index": { "type": "number" },
+        "data": { "type": "string", "maxLength": 900000 }
       },
-      "required": ["id", "slug", "title", "content", "status", "createdAt", "updatedAt"]
-    },
-    "PostRecord": {
-      "title": "PostRecord",
-      "description": "Blog post, tutorial, skill announcement, or release update.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "slug": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[a-z0-9\\-]+$" },
-        "title": { "type": "string", "minLength": 1, "maxLength": 140 },
-        "excerpt": { "type": "string", "maxLength": 400 },
-        "content": { "type": "string", "maxLength": 40000 },
-        "kind": { "type": "string", "enum": ["article", "tutorial", "announcement", "changelog"] },
-        "coverImage": { "type": "string", "maxLength": 500 },
-        "tags": { "type": "array" },
-        "status": { "type": "string", "enum": ["draft", "published"] },
-        "seoTitle": { "type": "string", "maxLength": 120 },
-        "seoDescription": { "type": "string", "maxLength": 300 },
-        "publishedAt": { "type": "number" },
-        "createdAt": { "type": "number" },
-        "updatedAt": { "type": "number" }
-      },
-      "required": ["id", "slug", "title", "content", "kind", "status", "createdAt", "updatedAt"]
-    },
-    "DownloadEvent": {
-      "title": "DownloadEvent",
-      "description": "Public download event log without PII.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "skillId": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "skillSlug": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "fileId": { "type": "string", "maxLength": 128 },
-        "deviceType": { "type": "string", "enum": ["Mobile", "Tablet", "Desktop"] },
-        "os": { "type": "string", "enum": ["Android", "iOS", "macOS", "Windows", "Linux", "ChromeOS", "Other"] },
-        "browser": { "type": "string", "maxLength": 60 },
-        "platformSource": { "type": "string", "maxLength": 60 },
-        "dateKey": { "type": "string", "maxLength": 20 },
-        "createdAt": { "type": "number" }
-      },
-      "required": ["id", "skillId", "skillSlug", "dateKey", "createdAt"]
-    },
-    "VisitorSession": {
-      "title": "VisitorSession",
-      "description": "Live visitor session tracking device OS, phone type, browser, acquisition platform, and current page.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "deviceType": { "type": "string", "enum": ["Mobile", "Tablet", "Desktop"] },
-        "os": { "type": "string", "enum": ["Android", "iOS", "macOS", "Windows", "Linux", "ChromeOS", "Other"] },
-        "deviceLabel": { "type": "string", "minLength": 1, "maxLength": 80 },
-        "browser": { "type": "string", "minLength": 1, "maxLength": 60 },
-        "platformSource": { "type": "string", "minLength": 1, "maxLength": 60 },
-        "referrerHost": { "type": "string", "maxLength": 180 },
-        "currentPath": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "pageViews": { "type": "number" },
-        "isActive": { "type": "boolean" },
-        "startedAt": { "type": "number" },
-        "lastSeenAt": { "type": "number" }
-      },
-      "required": [
-        "id",
-        "deviceType",
-        "os",
-        "deviceLabel",
-        "browser",
-        "platformSource",
-        "currentPath",
-        "pageViews",
-        "isActive",
-        "startedAt",
-        "lastSeenAt"
-      ]
-    },
-    "DownloadLead": {
-      "title": "DownloadLead",
-      "description": "Email address collected prior to downloading a skill alongside device and referral platform context.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "email": { "type": "string", "format": "email", "minLength": 3, "maxLength": 200, "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" },
-        "skillId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "skillTitle": { "type": "string", "minLength": 1, "maxLength": 140 },
-        "skillSlug": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[a-z0-9\\-]+$" },
-        "deviceType": { "type": "string", "enum": ["Mobile", "Tablet", "Desktop"] },
-        "os": { "type": "string", "enum": ["Android", "iOS", "macOS", "Windows", "Linux", "ChromeOS", "Other"] },
-        "browser": { "type": "string", "minLength": 1, "maxLength": 60 },
-        "platformSource": { "type": "string", "minLength": 1, "maxLength": 60 },
-        "dateKey": { "type": "string", "minLength": 8, "maxLength": 20 },
-        "createdAt": { "type": "number" }
-      },
-      "required": [
-        "id",
-        "email",
-        "skillId",
-        "skillTitle",
-        "skillSlug",
-        "deviceType",
-        "os",
-        "browser",
-        "platformSource",
-        "dateKey",
-        "createdAt"
-      ]
-    },
-    "DailyAnalytics": {
-      "title": "DailyAnalytics",
-      "description": "Aggregated daily download and pageview metrics.",
-      "type": "object",
-      "properties": {
-        "date": { "type": "string", "minLength": 8, "maxLength": 20, "pattern": "^[0-9\\-]+$" },
-        "pageViews": { "type": "number" },
-        "downloads": { "type": "number" },
-        "updatedAt": { "type": "number" }
-      },
-      "required": ["date", "pageViews", "downloads", "updatedAt"]
-    },
-    "ActivityLog": {
-      "title": "ActivityLog",
-      "description": "Admin CMS audit trail entry.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "actorEmail": { "type": "string", "maxLength": 200 },
-        "action": { "type": "string", "maxLength": 80 },
-        "entityType": { "type": "string", "maxLength": 40 },
-        "entityTitle": { "type": "string", "maxLength": 140 },
-        "createdAt": { "type": "number" }
-      },
-      "required": ["id", "actorEmail", "action", "entityType", "entityTitle", "createdAt"]
+      "required": ["index", "data"]
     }
   },
   "firestore": {
-    "/admins/{uid}": {
-      "schema": { "$ref": "#/entities/AdminUser" },
-      "description": "Authorized admin UIDs."
-    },
-    "/siteSettings/{docId}": {
-      "schema": { "$ref": "#/entities/SiteSettings" },
-      "description": "Global website configuration."
-    },
-    "/homepage/{docId}": {
-      "schema": { "$ref": "#/entities/HomepageConfig" },
-      "description": "Homepage CMS content."
-    },
-    "/categories/{categoryId}": {
-      "schema": { "$ref": "#/entities/Category" },
-      "description": "Skill categories."
-    },
-    "/skills/{skillId}": {
-      "schema": { "$ref": "#/entities/Skill" },
-      "description": "Published and draft AI skills."
-    },
-    "/prompts/{promptId}": {
-      "schema": { "$ref": "#/entities/SamplePrompt" },
-      "description": "Skill sample prompts managed via CMS."
-    },
     "/files/{fileId}": {
       "schema": { "$ref": "#/entities/FileRecord" },
-      "description": "Uploaded file metadata."
+      "description": "Uploaded file metadata (Firestore files-only storage)."
     },
-    "/pages/{pageId}": {
-      "schema": { "$ref": "#/entities/PageRecord" },
-      "description": "Static CMS pages."
-    },
-    "/posts/{postId}": {
-      "schema": { "$ref": "#/entities/PostRecord" },
-      "description": "Blog posts and updates."
-    },
-    "/downloads/{eventId}": {
-      "schema": { "$ref": "#/entities/DownloadEvent" },
-      "description": "Skill download tracking events."
-    },
-    "/visitorSessions/{sessionId}": {
-      "schema": { "$ref": "#/entities/VisitorSession" },
-      "description": "Live visitor sessions tracking device OS, browser, and source platform."
-    },
-    "/downloadLeads/{leadId}": {
-      "schema": { "$ref": "#/entities/DownloadLead" },
-      "description": "Captured visitor emails submitted before downloading a skill."
-    },
-    "/analytics/{date}": {
-      "schema": { "$ref": "#/entities/DailyAnalytics" },
-      "description": "Daily aggregate analytics."
-    },
-    "/activityLogs/{logId}": {
-      "schema": { "$ref": "#/entities/ActivityLog" },
-      "description": "Admin CMS activity logs."
+    "/files/{fileId}/chunks/{chunkId}": {
+      "schema": { "$ref": "#/entities/FileChunk" },
+      "description": "Ordered base64 binary chunks for uploaded files."
     }
   }
 }

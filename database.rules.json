@@ -4,76 +4,82 @@
     ".write": false,
     "admins": {
       "$uid": {
-        ".read": "auth != null && (auth.uid === $uid || auth.token.email === 'lakshaypamnani2@gmail.com')",
-        ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+        ".read": "auth != null && (auth.uid === $uid || (auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'))",
+        ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'"
       }
     },
     "siteSettings": {
       ".read": true,
-      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'"
     },
     "homepage": {
       ".read": true,
-      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'"
     },
     "categories": {
       ".read": true,
-      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'"
     },
     "skills": {
-      ".read": true,
+      ".indexOn": ["status"],
+      ".read": "(auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com') || (query.orderByChild == 'status' && query.equalTo == 'published')",
       "$skillId": {
-        ".read": "data.child('status').val() === 'published' || (auth != null && auth.token.email === 'lakshaypamnani2@gmail.com')",
-        ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+        ".read": "data.child('status').val() === 'published' || (auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com')",
+        ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'",
+        "downloadCount": {
+          ".write": "auth != null && newData.isNumber() && (!data.exists() ? newData.val() >= 1 : newData.val() === data.val() + 1)"
+        }
       }
     },
     "prompts": {
+      ".indexOn": ["status"],
+      ".read": "(auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com') || (query.orderByChild == 'status' && query.equalTo == 'published')",
       "$promptId": {
-        ".read": "data.child('status').val() === 'published' || (auth != null && auth.token.email === 'lakshaypamnani2@gmail.com')",
-        ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+        ".read": "data.child('status').val() === 'published' || (auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com')",
+        ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'"
       }
     },
-    "files": {
-      ".read": "auth != null && auth.token.email === 'lakshaypamnani2@gmail.com'",
-      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
-    },
     "pages": {
+      ".indexOn": ["status"],
+      ".read": "(auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com') || (query.orderByChild == 'status' && query.equalTo == 'published')",
       "$pageId": {
-        ".read": "data.child('status').val() === 'published' || (auth != null && auth.token.email === 'lakshaypamnani2@gmail.com')",
-        ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+        ".read": "data.child('status').val() === 'published' || (auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com')",
+        ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'"
       }
     },
     "posts": {
+      ".indexOn": ["status"],
+      ".read": "(auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com') || (query.orderByChild == 'status' && query.equalTo == 'published')",
       "$postId": {
-        ".read": "data.child('status').val() === 'published' || (auth != null && auth.token.email === 'lakshaypamnani2@gmail.com')",
-        ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+        ".read": "data.child('status').val() === 'published' || (auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com')",
+        ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'"
       }
     },
     "downloads": {
-      ".read": "auth != null && auth.token.email === 'lakshaypamnani2@gmail.com'",
+      ".read": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'",
       "$eventId": {
-        ".write": "!data.exists() && newData.hasChildren(['id', 'skillId', 'skillSlug', 'createdAt'])"
+        ".write": "auth != null && !data.exists() && newData.hasChildren(['id', 'skillId', 'skillSlug', 'createdAt']) && newData.child('id').val() === $eventId"
       }
     },
     "visitorSessions": {
-      ".read": "auth != null && auth.token.email === 'lakshaypamnani2@gmail.com'",
+      ".read": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'",
       "$sessionId": {
-        ".write": "newData.hasChildren(['id', 'deviceType', 'os', 'browser', 'platformSource', 'currentPath', 'lastSeenAt'])"
+        ".write": "newData.hasChildren(['id', 'deviceType', 'os', 'browser', 'platformSource', 'currentPath', 'lastSeenAt']) && newData.child('id').val() === $sessionId"
       }
     },
     "downloadLeads": {
-      ".read": "auth != null && auth.token.email === 'lakshaypamnani2@gmail.com'",
+      ".read": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'",
       "$leadId": {
-        ".write": "!data.exists() && newData.hasChildren(['id', 'email', 'skillId', 'skillSlug', 'createdAt'])"
+        ".write": "auth != null && !data.exists() && newData.hasChildren(['id', 'email', 'uid', 'skillId', 'skillSlug', 'createdAt']) && newData.child('id').val() === $leadId && newData.child('uid').val() === auth.uid"
       }
     },
     "analytics": {
-      ".read": "auth != null && auth.token.email === 'lakshaypamnani2@gmail.com'",
-      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+      ".read": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'",
+      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'"
     },
     "activityLogs": {
-      ".read": "auth != null && auth.token.email === 'lakshaypamnani2@gmail.com'",
-      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com'"
+      ".read": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'",
+      ".write": "auth != null && auth.token.email_verified === true && auth.token.email === 'lakshaypamnani2@gmail.com' && auth.token.firebase.sign_in_provider === 'google.com'"
     }
   }
 }

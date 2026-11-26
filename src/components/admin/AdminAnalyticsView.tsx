@@ -437,7 +437,14 @@ export function AdminAnalyticsView() {
               <tbody>
                 {filteredLeads.map((lead) => (
                   <tr key={lead.id} className="border-b border-[#18264F]/6 last:border-0">
-                    <td className="py-3 px-3 font-semibold text-[#18264F]">{lead.email}</td>
+                    <td className="py-3 px-3">
+                      <div className="font-semibold text-[#18264F]">{lead.email}</div>
+                      {lead.authProvider && (
+                        <span className="inline-block mt-0.5 text-[10px] font-medium text-[#304A96]/80">
+                          via {lead.authProvider === 'google.com' ? 'Google' : 'Email & Password'}
+                        </span>
+                      )}
+                    </td>
                     <td className="py-3 px-3 text-[#304A96] font-medium">{lead.skillTitle}</td>
                     <td className="py-3 px-3 text-[#18264F]/80">
                       {lead.os} ({lead.deviceType}) · {lead.browser}

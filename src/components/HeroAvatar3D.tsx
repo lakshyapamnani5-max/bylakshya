@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ResolvedImg } from './ResolvedMedia';
 
 interface HeroAvatar3DProps {
   avatarUrl: string;
@@ -310,7 +311,7 @@ export function HeroAvatar3D({ avatarUrl, altText = 'Lakshya illustrated avatar'
 
       {/* Circular Avatar Portrait */}
       <div className="relative z-10 w-[72%] h-[72%] rounded-full overflow-hidden border-4 border-white shadow-lg bg-[#304A96] transition-transform duration-500 hover:scale-[1.02]">
-        <img
+        <ResolvedImg
           src={avatarUrl}
           alt={altText}
           referrerPolicy="no-referrer"

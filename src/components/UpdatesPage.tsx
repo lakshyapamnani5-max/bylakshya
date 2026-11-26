@@ -4,6 +4,7 @@ import { useCms } from '../context/CmsContext';
 import { renderSafeMarkdown } from '../utils/markdown';
 import { updatePageSeo } from '../utils/seo';
 import { NotFoundPage } from './not-found';
+import { ResolvedImg } from './ResolvedMedia';
 
 interface UpdatesPageProps {
   slug?: string;
@@ -68,7 +69,7 @@ export function UpdatesPage({ slug, onNavigate }: UpdatesPageProps) {
         <article className="bg-white rounded-3xl border border-[#18264F]/8 overflow-hidden">
           {activePost.coverImage && (
             <div className="aspect-[16/9] w-full bg-[#EAEAF6]">
-              <img
+              <ResolvedImg
                 src={activePost.coverImage}
                 alt={activePost.title}
                 referrerPolicy="no-referrer"
@@ -119,7 +120,7 @@ export function UpdatesPage({ slug, onNavigate }: UpdatesPageProps) {
               <div>
                 {post.coverImage && (
                   <div className="aspect-[16/9] w-full bg-[#EAEAF6]">
-                    <img
+                    <ResolvedImg
                       src={post.coverImage}
                       alt={post.title}
                       loading="lazy"

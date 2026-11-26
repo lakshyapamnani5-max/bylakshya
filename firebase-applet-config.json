@@ -1,12 +1,10 @@
 {
-  "projectId": "subtle-raceway-k7854",
-  "appId": "1:974391418561:web:4f6bc9b49991d681ed7e40",
-  "apiKey": "AIzaSyCMHJl_wMOk71nrvpOmGRyhJNyNONWHkOk",
-  "authDomain": "subtle-raceway-k7854.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-0d28dddc-1163-4b3c-b4dd-a304b1866d3d",
-  "storageBucket": "subtle-raceway-k7854.firebasestorage.app",
-  "messagingSenderId": "974391418561",
-  "measurementId": "",
-  "oAuthClientId": "974391418561-r0jtid7uou7o2hsmvlg7tpuqkj3pfa56.apps.googleusercontent.com",
-  "recaptchaSiteKey": ""
+  "projectId": "bylakshya",
+  "appId": "1:468999452837:web:fb2e4709aeecffea9f754c",
+  "apiKey": "AIzaSyB95r5wnoYGrnAR95grUG2YSUQ4FPB9f2w",
+  "authDomain": "bylakshya.firebaseapp.com",
+  "databaseURL": "https://bylakshya-default-rtdb.firebaseio.com",
+  "storageBucket": "bylakshya.firebasestorage.app",
+  "messagingSenderId": "468999452837",
+  "measurementId": "G-6SMT9R1F8Q"
 }

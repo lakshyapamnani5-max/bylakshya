@@ -21,6 +21,7 @@ import {
 import { useCms } from '../../context/CmsContext';
 import type { Skill } from '../../types/cms';
 import { computeAnalyticsSummary } from '../../utils/skillsLogic';
+import { formatFirebaseAuthError } from '../../utils/rtdbHelpers';
 import { AdminSkillEditor } from './AdminSkillEditor';
 import { AdminFileManager } from './AdminFileManager';
 import { AdminPromptsManager } from './AdminPromptsManager';
@@ -124,9 +125,10 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
             >
               <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
               <div className="space-y-1">
-                <p className="font-semibold">Unauthorized Account</p>
+                <p className="font-semibold">Administrator Google Sign-In Required</p>
                 <p>
-                  Signed in as <span className="font-mono">{user.email}</span>, which is not in the admin allowlist.
+                  Currently signed in as <span className="font-mono">{user.email}</span>. Creator CMS access is restricted to Google Sign-In with{' '}
+                  <span className="font-mono">lakshaypamnani2@gmail.com</span>.
                 </p>
               </div>
             </div>
@@ -147,7 +149,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
                   try {
                     await signInWithGoogle();
                   } catch (err) {
-                    setAuthError(err instanceof Error ? err.message : 'Sign-in cancelled.');
+                    setAuthError(formatFirebaseAuthError(err));
                   }
                 }}
                 className="w-full py-3.5 px-5 rounded-2xl bg-[#304A96] text-white text-sm font-semibold hover:bg-[#18264F] transition-colors"
@@ -155,13 +157,29 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
                 Sign in with Google
               </button>
             ) : (
-              <button
-                type="button"
-                onClick={() => void signOutUser()}
-                className="w-full py-3 px-5 rounded-2xl bg-[#18264F] text-white text-sm font-semibold"
-              >
-                Sign out and switch account
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setAuthError('');
+                    try {
+                      await signInWithGoogle();
+                    } catch (err) {
+                      setAuthError(formatFirebaseAuthError(err));
+                    }
+                  }}
+                  className="w-full py-3.5 px-5 rounded-2xl bg-[#304A96] text-white text-sm font-semibold hover:bg-[#18264F] transition-colors"
+                >
+                  Sign in with Google as Admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void signOutUser()}
+                  className="w-full py-3 px-5 rounded-2xl bg-[#18264F] text-white text-sm font-semibold"
+                >
+                  Sign out
+                </button>
+              </>
             )}
 
             <button
