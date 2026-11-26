@@ -52,8 +52,9 @@ function splitComma(raw: string): string[] {
 }
 
 export function AdminSkillEditor({ initialSkill, onClose, onSaved }: AdminSkillEditorProps) {
-  const { categories, files, prompts, saveSkill, savePrompt, deletePrompt, uploadFile } = useCms();
+  const { categories, files, prompts, saveSkill, savePrompt, deletePrompt, saveCategory, uploadFile } = useCms();
   const now = Date.now();
+  const [quickCatName, setQuickCatName] = useState('');
 
   const [id] = useState(initialSkill?.id || generateSafeId('skill'));
   const [title, setTitle] = useState(initialSkill?.title || '');
@@ -464,12 +465,49 @@ export function AdminSkillEditor({ initialSkill, onClose, onSaved }: AdminSkillE
               onChange={(e) => setCategoryId(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl bg-[#F5F5FA] border border-[#18264F]/10 text-sm"
             >
+              {categories.length === 0 && (
+                <option value="">Create a category below first</option>
+              )}
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>
               ))}
             </select>
+            {categories.length === 0 && (
+              <div className="flex gap-1.5 pt-1">
+                <input
+                  type="text"
+                  value={quickCatName}
+                  onChange={(e) => setQuickCatName(e.target.value)}
+                  placeholder="e.g. Video Editing"
+                  className="flex-1 px-2.5 py-1.5 rounded-lg bg-[#F5F5FA] border border-[#18264F]/12 text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const clean = quickCatName.trim();
+                    if (!clean) return;
+                    const newCatId = generateSafeId('cat');
+                    await saveCategory({
+                      id: newCatId,
+                      name: clean,
+                      slug: generateSlug(clean),
+                      description: '',
+                      icon: 'Folder',
+                      order: 1,
+                      createdAt: Date.now(),
+                      updatedAt: Date.now(),
+                    });
+                    setCategoryId(newCatId);
+                    setQuickCatName('');
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg bg-[#304A96] text-white text-[11px] font-semibold shrink-0"
+                >
+                  + Add
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">

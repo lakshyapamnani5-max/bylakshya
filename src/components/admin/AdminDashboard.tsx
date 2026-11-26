@@ -55,7 +55,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
     user,
     authReady,
     isAdmin,
-    isSeeding,
+    isClearingDb,
     skills,
     categories,
     files,
@@ -66,7 +66,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
     activityLogs,
     signInWithGoogle,
     signOutUser,
-    seedInitialDatabase,
+    clearAllDatabaseData,
     deleteSkill,
     duplicateSkill,
     saveSkill,
@@ -76,6 +76,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
   const [editingSkill, setEditingSkill] = useState<Skill | null | undefined>(undefined);
   const [skillFilter, setSkillFilter] = useState<'all' | 'published' | 'draft'>('all');
   const [authError, setAuthError] = useState('');
+  const [confirmClearDb, setConfirmClearDb] = useState(false);
 
   const summary = useMemo(
     () => computeAnalyticsSummary(skills, downloads, analytics),
@@ -251,15 +252,43 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
 
         <div className="hidden lg:block pt-6 border-t border-[#18264F]/8 space-y-3">
           <div className="text-[11px] text-[#18264F]/60 truncate">{user.email}</div>
-          <button
-            type="button"
-            onClick={() => void seedInitialDatabase()}
-            disabled={isSeeding}
-            className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#F5F5FA] text-[#18264F] text-xs font-medium hover:bg-[#EAEAF6]"
-          >
-            <Database className="w-3.5 h-3.5" />
-            <span>{isSeeding ? 'Syncing...' : 'Sync Seed Data'}</span>
-          </button>
+          {confirmClearDb ? (
+            <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 space-y-2">
+              <p className="text-[11px] text-red-800 leading-snug">
+                Reset RTDB &amp; Firestore files to empty? Admin login stays intact.
+              </p>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  disabled={isClearingDb}
+                  onClick={async () => {
+                    await clearAllDatabaseData();
+                    setConfirmClearDb(false);
+                  }}
+                  className="flex-1 py-1.5 px-2 rounded-lg bg-red-600 text-white text-[11px] font-semibold hover:bg-red-700 disabled:opacity-60"
+                >
+                  {isClearingDb ? 'Clearing...' : 'Confirm'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmClearDb(false)}
+                  className="flex-1 py-1.5 px-2 rounded-lg bg-white border border-[#18264F]/15 text-[#18264F] text-[11px] font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmClearDb(true)}
+              disabled={isClearingDb}
+              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#F5F5FA] text-[#18264F] text-xs font-medium hover:bg-red-50 hover:text-red-700"
+            >
+              <Database className="w-3.5 h-3.5" />
+              <span>Clear All Data</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => void signOutUser()}
@@ -324,25 +353,31 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
                 <h2 className="font-display text-lg font-semibold text-[#18264F]">
                   Download Trend (Last 14 Days)
                 </h2>
-                <div className="flex items-end gap-2 h-44 pt-4">
-                  {summary.trendSeries.map((day) => {
-                    const pct = Math.max(8, Math.round((day.downloads / maxTrend) * 100));
-                    return (
-                      <div key={day.date} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                        <span className="text-[10px] font-mono tabular-nums text-[#18264F]/65">
-                          {day.downloads}
-                        </span>
-                        <div
-                          style={{ height: `${pct}%` }}
-                          className="w-full max-w-[34px] rounded-t-lg bg-[#304A96]"
-                        />
-                        <span className="text-[10px] font-mono text-[#18264F]/50">
-                          {day.date.slice(5)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
+                {summary.trendSeries.length === 0 ? (
+                  <div className="h-44 flex items-center justify-center rounded-xl bg-[#F5F5FA] text-xs text-[#18264F]/60">
+                    No download activity recorded yet.
+                  </div>
+                ) : (
+                  <div className="flex items-end gap-2 h-44 pt-4">
+                    {summary.trendSeries.map((day) => {
+                      const pct = Math.max(8, Math.round((day.downloads / maxTrend) * 100));
+                      return (
+                        <div key={day.date} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
+                          <span className="text-[10px] font-mono tabular-nums text-[#18264F]/65">
+                            {day.downloads}
+                          </span>
+                          <div
+                            style={{ height: `${pct}%` }}
+                            className="w-full max-w-[34px] rounded-t-lg bg-[#304A96]"
+                          />
+                          <span className="text-[10px] font-mono text-[#18264F]/50">
+                            {day.date.slice(5)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Recent Activity */}
@@ -350,22 +385,28 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
                 <h2 className="font-display text-lg font-semibold text-[#18264F]">
                   Recent Activity
                 </h2>
-                <ul className="space-y-3 text-xs">
-                  {activityLogs.slice(0, 6).map((log) => (
-                    <li
-                      key={log.id}
-                      className="flex items-start justify-between gap-3 pb-2.5 border-b border-[#18264F]/6 last:border-0"
-                    >
-                      <div>
-                        <span className="font-semibold text-[#18264F]">{log.action}: </span>
-                        <span className="text-[#304A96]">{log.entityTitle}</span>
-                      </div>
-                      <span className="text-[11px] text-[#18264F]/50 tabular-nums shrink-0">
-                        {new Date(log.createdAt).toLocaleDateString()}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                {activityLogs.length === 0 ? (
+                  <p className="text-xs text-[#18264F]/60 py-6 text-center bg-[#F5F5FA] rounded-xl">
+                    No admin activity recorded yet.
+                  </p>
+                ) : (
+                  <ul className="space-y-3 text-xs">
+                    {activityLogs.slice(0, 6).map((log) => (
+                      <li
+                        key={log.id}
+                        className="flex items-start justify-between gap-3 pb-2.5 border-b border-[#18264F]/6 last:border-0"
+                      >
+                        <div>
+                          <span className="font-semibold text-[#18264F]">{log.action}: </span>
+                          <span className="text-[#304A96]">{log.entityTitle}</span>
+                        </div>
+                        <span className="text-[11px] text-[#18264F]/50 tabular-nums shrink-0">
+                          {new Date(log.createdAt).toLocaleDateString()}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
 
@@ -374,28 +415,34 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
               <h2 className="font-display text-lg font-semibold text-[#18264F]">
                 Recently Updated Skills
               </h2>
-              <div className="divide-y divide-[#18264F]/6 text-xs">
-                {skills.slice(0, 5).map((sk) => (
-                  <div key={sk.id} className="py-3 flex items-center justify-between gap-4">
-                    <div>
-                      <span className="font-semibold text-[#18264F]">{sk.title}</span>
-                      <span className="text-[#18264F]/55 ml-2">
-                        · {categoryName(sk.categoryId)} · v{sk.version} · {sk.status}
-                      </span>
+              {skills.length === 0 ? (
+                <p className="text-xs text-[#18264F]/60 py-6 text-center bg-[#F5F5FA] rounded-xl">
+                  No skills added yet. Click &ldquo;Add New Skill&rdquo; above to create your first skill.
+                </p>
+              ) : (
+                <div className="divide-y divide-[#18264F]/6 text-xs">
+                  {skills.slice(0, 5).map((sk) => (
+                    <div key={sk.id} className="py-3 flex items-center justify-between gap-4">
+                      <div>
+                        <span className="font-semibold text-[#18264F]">{sk.title}</span>
+                        <span className="text-[#18264F]/55 ml-2">
+                          · {categoryName(sk.categoryId)} · v{sk.version} · {sk.status}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTab('skills');
+                          setEditingSkill(sk);
+                        }}
+                        className="text-[#304A96] font-semibold hover:underline"
+                      >
+                        Edit
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTab('skills');
-                        setEditingSkill(sk);
-                      }}
-                      className="text-[#304A96] font-semibold hover:underline"
-                    >
-                      Edit
-                    </button>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

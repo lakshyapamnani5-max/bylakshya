@@ -106,53 +106,64 @@ export function UpdatesPage({ slug, onNavigate }: UpdatesPageProps) {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-7">
-        {publishedPosts.map((post) => {
-          const dateLabel = new Date(post.publishedAt || post.createdAt).toLocaleDateString(
-            'en-US',
-            { year: 'numeric', month: 'short', day: 'numeric' },
-          );
-          return (
-            <article
-              key={post.id}
-              className="bg-white rounded-3xl border border-[#18264F]/8 overflow-hidden flex flex-col justify-between"
-            >
-              <div>
-                {post.coverImage && (
-                  <div className="aspect-[16/9] w-full bg-[#EAEAF6]">
-                    <ResolvedImg
-                      src={post.coverImage}
-                      alt={post.title}
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover"
-                    />
+      {publishedPosts.length === 0 ? (
+        <div className="bg-white rounded-3xl border border-[#18264F]/8 p-12 text-center space-y-2">
+          <h2 className="font-display text-xl font-semibold text-[#18264F]">
+            No updates published yet
+          </h2>
+          <p className="text-sm text-[#18264F]/65 max-w-md mx-auto">
+            Articles, tutorials, and release notes will appear here once published.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-7">
+          {publishedPosts.map((post) => {
+            const dateLabel = new Date(post.publishedAt || post.createdAt).toLocaleDateString(
+              'en-US',
+              { year: 'numeric', month: 'short', day: 'numeric' },
+            );
+            return (
+              <article
+                key={post.id}
+                className="bg-white rounded-3xl border border-[#18264F]/8 overflow-hidden flex flex-col justify-between"
+              >
+                <div>
+                  {post.coverImage && (
+                    <div className="aspect-[16/9] w-full bg-[#EAEAF6]">
+                      <ResolvedImg
+                        src={post.coverImage}
+                        alt={post.title}
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  )}
+                  <div className="p-7 space-y-3">
+                    <div className="text-xs font-medium text-[#304A96] capitalize">
+                      {post.kind} · {dateLabel}
+                    </div>
+                    <h2 className="font-display text-2xl font-semibold text-[#18264F] leading-snug">
+                      {post.title}
+                    </h2>
+                    <p className="text-sm text-[#18264F]/75 leading-relaxed">{post.excerpt}</p>
                   </div>
-                )}
-                <div className="p-7 space-y-3">
-                  <div className="text-xs font-medium text-[#304A96] capitalize">
-                    {post.kind} · {dateLabel}
-                  </div>
-                  <h2 className="font-display text-2xl font-semibold text-[#18264F] leading-snug">
-                    {post.title}
-                  </h2>
-                  <p className="text-sm text-[#18264F]/75 leading-relaxed">{post.excerpt}</p>
                 </div>
-              </div>
-              <div className="px-7 pb-7">
-                <button
-                  type="button"
-                  onClick={() => onNavigate(`/updates/${post.slug}`)}
-                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#304A96] hover:text-[#18264F]"
-                >
-                  <span>Read post</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              </div>
-            </article>
-          );
-        })}
-      </div>
+                <div className="px-7 pb-7">
+                  <button
+                    type="button"
+                    onClick={() => onNavigate(`/updates/${post.slug}`)}
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#304A96] hover:text-[#18264F]"
+                  >
+                    <span>Read post</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
     </main>
   );
 }

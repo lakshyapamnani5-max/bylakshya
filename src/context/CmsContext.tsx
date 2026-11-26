@@ -2,14 +2,12 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import {
   collection,
   doc as fsDoc,
-  getDoc as fsGetDoc,
+  getDocs as fsGetDocs,
   onSnapshot as fsOnSnapshot,
-  setDoc as fsSetDoc,
   updateDoc as fsUpdateDoc,
 } from 'firebase/firestore';
 import {
   equalTo,
-  get as rtdbGet,
   onValue,
   orderByChild,
   query as rtdbQuery,
@@ -41,16 +39,8 @@ import {
   testConnection,
 } from '../firebase';
 import {
-  INITIAL_ACTIVITY_LOGS,
-  INITIAL_CATEGORIES,
-  INITIAL_DAILY_ANALYTICS,
-  INITIAL_FILES,
-  INITIAL_HOMEPAGE_CONFIG,
-  INITIAL_PAGES,
-  INITIAL_POSTS,
-  INITIAL_PROMPTS,
-  INITIAL_SITE_SETTINGS,
-  INITIAL_SKILLS,
+  DEFAULT_HOMEPAGE_CONFIG,
+  DEFAULT_SITE_SETTINGS,
 } from '../data/seedData';
 import type {
   ActivityLog,
@@ -104,14 +94,14 @@ interface CmsContextValue {
   user: User | null;
   authReady: boolean;
   isAdmin: boolean;
-  isSeeding: boolean;
+  isClearingDb: boolean;
   dbConnected: boolean;
   signInWithGoogle: () => Promise<User>;
   signInWithEmail: (email: string, password: string) => Promise<User>;
   registerWithEmail: (email: string, password: string, displayName?: string) => Promise<User>;
   sendPasswordReset: (email: string) => Promise<void>;
   signOutUser: () => Promise<void>;
-  seedInitialDatabase: () => Promise<void>;
+  clearAllDatabaseData: () => Promise<void>;
   saveSkill: (skill: Skill) => Promise<void>;
   deleteSkill: (skillId: string, title: string) => Promise<void>;
   duplicateSkill: (skill: Skill) => Promise<Skill>;
@@ -138,24 +128,24 @@ interface CmsContextValue {
 const CmsContext = createContext<CmsContextValue | null>(null);
 
 export function CmsProvider({ children }: { children: React.ReactNode }) {
-  const [settings, setSettings] = useState<SiteSettings>(INITIAL_SITE_SETTINGS);
-  const [homepage, setHomepage] = useState<HomepageConfig>(INITIAL_HOMEPAGE_CONFIG);
-  const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
-  const [skills, setSkills] = useState<Skill[]>(INITIAL_SKILLS);
-  const [prompts, setPrompts] = useState<SamplePrompt[]>(INITIAL_PROMPTS);
-  const [files, setFiles] = useState<FileRecord[]>(INITIAL_FILES);
-  const [pages, setPages] = useState<PageRecord[]>(INITIAL_PAGES);
-  const [posts, setPosts] = useState<PostRecord[]>(INITIAL_POSTS);
+  const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
+  const [homepage, setHomepage] = useState<HomepageConfig>(DEFAULT_HOMEPAGE_CONFIG);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [prompts, setPrompts] = useState<SamplePrompt[]>([]);
+  const [files, setFiles] = useState<FileRecord[]>([]);
+  const [pages, setPages] = useState<PageRecord[]>([]);
+  const [posts, setPosts] = useState<PostRecord[]>([]);
   const [downloads, setDownloads] = useState<DownloadEvent[]>([]);
   const [visitorSessions, setVisitorSessions] = useState<VisitorSession[]>([]);
   const [downloadLeads, setDownloadLeads] = useState<DownloadLead[]>([]);
-  const [analytics, setAnalytics] = useState<DailyAnalytics[]>(INITIAL_DAILY_ANALYTICS);
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(INITIAL_ACTIVITY_LOGS);
+  const [analytics, setAnalytics] = useState<DailyAnalytics[]>([]);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
 
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [isSeeding, setIsSeeding] = useState(false);
+  const [isClearingDb, setIsClearingDb] = useState(false);
   const [dbConnected, setDbConnected] = useState(true);
   const currentTrackedPathRef = React.useRef<string>('');
   const sessionInitializedRef = React.useRef<boolean>(false);
@@ -206,9 +196,11 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
             setSettings(
               normalizeSiteSettingsFromRtdb(
                 snap.val() as Partial<SiteSettings>,
-                INITIAL_SITE_SETTINGS,
+                DEFAULT_SITE_SETTINGS,
               ),
             );
+          } else {
+            setSettings(DEFAULT_SITE_SETTINGS);
           }
         },
         (err) => console.warn('RTDB siteSettings listener:', err.message),
@@ -223,9 +215,11 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
             setHomepage(
               normalizeHomepageFromRtdb(
                 snap.val() as Partial<HomepageConfig>,
-                INITIAL_HOMEPAGE_CONFIG,
+                DEFAULT_HOMEPAGE_CONFIG,
               ),
             );
+          } else {
+            setHomepage(DEFAULT_HOMEPAGE_CONFIG);
           }
         },
         (err) => console.warn('RTDB homepage listener:', err.message),
@@ -238,7 +232,9 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         (snap) => {
           if (snap.exists()) {
             const list = rtdbMapToArray<Category>(snap.val()).sort((a, b) => a.order - b.order);
-            if (list.length > 0) setCategories(list);
+            setCategories(list);
+          } else {
+            setCategories([]);
           }
         },
         (err) => console.warn('RTDB categories listener:', err.message),
@@ -254,7 +250,9 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         (snap) => {
           if (snap.exists()) {
             const list = rtdbMapToArray<Partial<Skill>>(snap.val()).map(normalizeSkillFromRtdb);
-            if (list.length > 0 || isAdmin) setSkills(list);
+            setSkills(list);
+          } else {
+            setSkills([]);
           }
         },
         (err) => console.warn('RTDB skills listener:', err.message),
@@ -268,11 +266,13 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
       onValue(
         promptsTarget,
         (snap) => {
-          if (snap.exists() || isAdmin) {
+          if (snap.exists()) {
             const list = rtdbMapToArray<SamplePrompt>(snap.val()).sort(
               (a, b) => a.displayOrder - b.displayOrder || a.createdAt - b.createdAt,
             );
             setPrompts(list);
+          } else {
+            setPrompts([]);
           }
         },
         (err) => console.warn('RTDB prompts listener:', err.message),
@@ -288,7 +288,9 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         (snap) => {
           if (snap.exists()) {
             const list = rtdbMapToArray<Partial<PageRecord>>(snap.val()).map(normalizePageFromRtdb);
-            if (list.length > 0 || isAdmin) setPages(list);
+            setPages(list);
+          } else {
+            setPages([]);
           }
         },
         (err) => console.warn('RTDB pages listener:', err.message),
@@ -304,7 +306,9 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         (snap) => {
           if (snap.exists()) {
             const list = rtdbMapToArray<Partial<PostRecord>>(snap.val()).map(normalizePostFromRtdb);
-            if (list.length > 0 || isAdmin) setPosts(list);
+            setPosts(list);
+          } else {
+            setPosts([]);
           }
         },
         (err) => console.warn('RTDB posts listener:', err.message),
@@ -317,9 +321,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         fsOnSnapshot(
           collection(db, 'files'),
           (snap) => {
-            if (!snap.empty) {
-              setFiles(snap.docs.map((d) => d.data() as FileRecord));
-            }
+            setFiles(snap.docs.map((d) => d.data() as FileRecord));
           },
           (err) => console.warn('Firestore files listener:', err.message),
         ),
@@ -340,10 +342,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         onValue(
           rtdbRef(rtdb, 'analytics'),
           (snap) => {
-            if (snap.exists()) {
-              const list = rtdbMapToArray<DailyAnalytics>(snap.val());
-              if (list.length > 0) setAnalytics(list);
-            }
+            setAnalytics(snap.exists() ? rtdbMapToArray<DailyAnalytics>(snap.val()) : []);
           },
           (err) => console.warn('RTDB analytics listener:', err.message),
         ),
@@ -383,7 +382,9 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
               const logs = rtdbMapToArray<ActivityLog>(snap.val()).sort(
                 (a, b) => b.createdAt - a.createdAt,
               );
-              if (logs.length > 0) setActivityLogs(logs);
+              setActivityLogs(logs);
+            } else {
+              setActivityLogs([]);
             }
           },
           (err) => console.warn('RTDB activityLogs listener:', err.message),
@@ -396,87 +397,52 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
     };
   }, [authReady, isAdmin]);
 
-  const seedInitialDatabase = useCallback(async () => {
-    setIsSeeding(true);
-    try {
-      const updates: Record<string, unknown> = {
-        'siteSettings/main': stripUndefinedDeep(INITIAL_SITE_SETTINGS),
-        'homepage/main': stripUndefinedDeep(INITIAL_HOMEPAGE_CONFIG),
-      };
-      for (const cat of INITIAL_CATEGORIES) {
-        updates[`categories/${cat.id}`] = stripUndefinedDeep(cat);
-      }
-      for (const sk of INITIAL_SKILLS) {
-        updates[`skills/${sk.id}`] = stripUndefinedDeep(sk);
-      }
-      for (const pr of INITIAL_PROMPTS) {
-        updates[`prompts/${pr.id}`] = stripUndefinedDeep(pr);
-      }
-      for (const p of INITIAL_PAGES) {
-        updates[`pages/${p.id}`] = stripUndefinedDeep(p);
-      }
-      for (const post of INITIAL_POSTS) {
-        updates[`posts/${post.id}`] = stripUndefinedDeep(post);
-      }
-      for (const day of INITIAL_DAILY_ANALYTICS) {
-        updates[`analytics/${day.date}`] = stripUndefinedDeep(day);
-      }
-      for (const log of INITIAL_ACTIVITY_LOGS) {
-        updates[`activityLogs/${log.id}`] = stripUndefinedDeep(log);
-      }
-      if (auth.currentUser) {
-        updates[`admins/${auth.currentUser.uid}`] = {
-          uid: auth.currentUser.uid,
-          email: auth.currentUser.email || BOOTSTRAP_ADMIN_EMAIL,
-          role: 'admin',
-          addedAt: Date.now(),
-        };
-      }
-      await rtdbUpdate(rtdbRef(rtdb), updates);
-
-      // Seed starter file metadata in Cloud Firestore (files ONLY)
-      for (const f of INITIAL_FILES) {
-        const existingSnap = await fsGetDoc(fsDoc(db, 'files', f.id));
-        if (!existingSnap.exists()) {
-          await fsSetDoc(fsDoc(db, 'files', f.id), f);
-        }
-      }
-
-      await logActivity('Seeded initial website content', 'system', 'RTDB + Firestore Files');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'rtdb-seed');
-    } finally {
-      setIsSeeding(false);
+  const clearAllDatabaseData = useCallback(async () => {
+    if (!auth.currentUser || !isVerifiedGoogleAdmin(auth.currentUser)) {
+      throw new Error('Only the verified Google administrator can clear database data.');
     }
-  }, [logActivity]);
+    setIsClearingDb(true);
+    try {
+      const rtdbNullUpdates: Record<string, null> = {
+        siteSettings: null,
+        homepage: null,
+        categories: null,
+        skills: null,
+        prompts: null,
+        pages: null,
+        posts: null,
+        downloads: null,
+        visitorSessions: null,
+        downloadLeads: null,
+        analytics: null,
+        activityLogs: null,
+      };
+      await rtdbUpdate(rtdbRef(rtdb), rtdbNullUpdates);
 
-  // Auto-seed Realtime Database once when verified Google admin signs in and /skills or /prompts is empty
-  useEffect(() => {
-    if (!isAdmin || !user) return;
-    let active = true;
-    (async () => {
-      try {
-        const skillsSnap = await rtdbGet(rtdbRef(rtdb, 'skills'));
-        if (active && !skillsSnap.exists()) {
-          await seedInitialDatabase();
-          return;
-        }
-        const promptsSnap = await rtdbGet(rtdbRef(rtdb, 'prompts'));
-        if (active && !promptsSnap.exists()) {
-          const promptUpdates: Record<string, unknown> = {};
-          for (const pr of INITIAL_PROMPTS) {
-            promptUpdates[`prompts/${pr.id}`] = stripUndefinedDeep(pr);
-          }
-          await rtdbUpdate(rtdbRef(rtdb), promptUpdates);
-        }
-      } catch (err) {
-        console.warn('Auto-seed check skipped:', err);
+      const filesSnap = await fsGetDocs(collection(db, 'files'));
+      for (const fileDoc of filesSnap.docs) {
+        await deleteFileFromFirestore(db, fileDoc.id);
       }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [isAdmin, user, seedInitialDatabase]);
+
+      setSettings(DEFAULT_SITE_SETTINGS);
+      setHomepage(DEFAULT_HOMEPAGE_CONFIG);
+      setCategories([]);
+      setSkills([]);
+      setPrompts([]);
+      setFiles([]);
+      setPages([]);
+      setPosts([]);
+      setDownloads([]);
+      setVisitorSessions([]);
+      setDownloadLeads([]);
+      setAnalytics([]);
+      setActivityLogs([]);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'database-clear-all');
+    } finally {
+      setIsClearingDb(false);
+    }
+  }, []);
 
   const signInWithGoogle = useCallback(async (): Promise<User> => {
     const cred = await signInWithPopup(auth, googleProvider);
@@ -1099,14 +1065,14 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         user,
         authReady,
         isAdmin,
-        isSeeding,
+        isClearingDb,
         dbConnected,
         signInWithGoogle,
         signInWithEmail,
         registerWithEmail,
         sendPasswordReset,
         signOutUser,
-        seedInitialDatabase,
+        clearAllDatabaseData,
         saveSkill,
         deleteSkill,
         duplicateSkill,

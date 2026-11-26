@@ -260,28 +260,48 @@ export function HomePage({ onNavigate, initialSection }: HomePageProps) {
       </section>
 
       {/* More From Me Section */}
-      <section id="more-from-me" className="max-w-6xl mx-auto px-6 py-14 border-t border-[#18264F]/8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
-          <div className="lg:col-span-5 space-y-4">
-            <h2 className="font-display text-3xl font-semibold text-[#18264F]">
-              More from Me
-            </h2>
-            <p className="text-sm text-[#18264F]/75 leading-relaxed">
-              {homepage.aboutBlurb}
-            </p>
-          </div>
+      {(homepage.moreFromMeLinks.length > 0 || homepage.aboutBlurb.trim().length > 0) && (
+        <section id="more-from-me" className="max-w-6xl mx-auto px-6 py-14 border-t border-[#18264F]/8">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
+            <div className="lg:col-span-5 space-y-4">
+              <h2 className="font-display text-3xl font-semibold text-[#18264F]">
+                More from Me
+              </h2>
+              <p className="text-sm text-[#18264F]/75 leading-relaxed">
+                {homepage.aboutBlurb}
+              </p>
+            </div>
 
-          <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {homepage.moreFromMeLinks.map((item) => {
-              const safeHref = isSafeUrl(item.href) ? item.href : '#';
-              if (item.external) {
+            <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {homepage.moreFromMeLinks.map((item) => {
+                const safeHref = isSafeUrl(item.href) ? item.href : '#';
+                if (item.external) {
+                  return (
+                    <a
+                      key={item.id}
+                      href={safeHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group bg-white rounded-2xl border border-[#18264F]/8 p-5 flex items-start justify-between gap-4 hover:border-[#304A96]/35 transition-colors"
+                    >
+                      <div className="space-y-1">
+                        <span className="font-semibold text-sm text-[#18264F] group-hover:text-[#304A96] transition-colors">
+                          {item.label}
+                        </span>
+                        <p className="text-xs text-[#18264F]/65 leading-relaxed">
+                          {item.subtitle}
+                        </p>
+                      </div>
+                      <ArrowUpRight className="w-4 h-4 text-[#18264F]/45 group-hover:text-[#304A96] shrink-0 mt-0.5" />
+                    </a>
+                  );
+                }
                 return (
-                  <a
+                  <button
                     key={item.id}
-                    href={safeHref}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group bg-white rounded-2xl border border-[#18264F]/8 p-5 flex items-start justify-between gap-4 hover:border-[#304A96]/35 transition-colors"
+                    type="button"
+                    onClick={() => onNavigate(safeHref)}
+                    className="text-left group bg-white rounded-2xl border border-[#18264F]/8 p-5 flex items-start justify-between gap-4 hover:border-[#304A96]/35 transition-colors"
                   >
                     <div className="space-y-1">
                       <span className="font-semibold text-sm text-[#18264F] group-hover:text-[#304A96] transition-colors">
@@ -291,32 +311,14 @@ export function HomePage({ onNavigate, initialSection }: HomePageProps) {
                         {item.subtitle}
                       </p>
                     </div>
-                    <ArrowUpRight className="w-4 h-4 text-[#18264F]/45 group-hover:text-[#304A96] shrink-0 mt-0.5" />
-                  </a>
+                    <ArrowRight className="w-4 h-4 text-[#18264F]/45 group-hover:text-[#304A96] shrink-0 mt-0.5" />
+                  </button>
                 );
-              }
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onNavigate(safeHref)}
-                  className="text-left group bg-white rounded-2xl border border-[#18264F]/8 p-5 flex items-start justify-between gap-4 hover:border-[#304A96]/35 transition-colors"
-                >
-                  <div className="space-y-1">
-                    <span className="font-semibold text-sm text-[#18264F] group-hover:text-[#304A96] transition-colors">
-                      {item.label}
-                    </span>
-                    <p className="text-xs text-[#18264F]/65 leading-relaxed">
-                      {item.subtitle}
-                    </p>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-[#18264F]/45 group-hover:text-[#304A96] shrink-0 mt-0.5" />
-                </button>
-              );
-            })}
+              })}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
     </main>
   );
 }

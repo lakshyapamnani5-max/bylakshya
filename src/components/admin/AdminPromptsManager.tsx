@@ -59,7 +59,7 @@ export function AdminPromptsManager() {
     const defaultSkillId =
       selectedSkillFilter !== 'all'
         ? selectedSkillFilter
-        : skills[0]?.id || 'skill-universal-video-editor';
+        : skills[0]?.id || '';
     const nextOrder =
       prompts.filter((p) => p.skillId === defaultSkillId).length + 1;
     const now = Date.now();

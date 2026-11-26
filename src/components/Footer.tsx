@@ -65,21 +65,32 @@ export function Footer({ onNavigate }: FooterProps) {
           <div className="md:col-span-4 space-y-3">
             <h3 className="text-sm font-semibold text-[#18264F]">Connect</h3>
             <ul className="space-y-2 text-sm text-[#18264F]/75">
-              {settings.socialLinks.map((soc) => {
-                const safeHref = isSafeUrl(soc.url) ? soc.url : '#';
-                return (
-                  <li key={soc.id}>
-                    <a
-                      href={safeHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="hover:text-[#304A96]"
-                    >
-                      {soc.label}
-                    </a>
-                  </li>
-                );
-              })}
+              {settings.socialLinks.length > 0 ? (
+                settings.socialLinks.map((soc) => {
+                  const safeHref = isSafeUrl(soc.url) ? soc.url : '#';
+                  return (
+                    <li key={soc.id}>
+                      <a
+                        href={safeHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="hover:text-[#304A96]"
+                      >
+                        {soc.label}
+                      </a>
+                    </li>
+                  );
+                })
+              ) : (
+                <li>
+                  <a
+                    href={`mailto:${settings.contactEmail || 'lakshaypamnani2@gmail.com'}`}
+                    className="hover:text-[#304A96]"
+                  >
+                    {settings.contactEmail || 'lakshaypamnani2@gmail.com'}
+                  </a>
+                </li>
+              )}
             </ul>
           </div>
         </div>
